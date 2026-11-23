@@ -58,17 +58,17 @@ func TestStartupGroupWordingAndAccessibleLabel(t *testing.T) {
 	app := newTestApp(t)
 	app.tab = 2
 	tt := ui.NewTester(app.view, 860, 620)
-	scrollToControl(t, tt, ui.RoleSwitch, openAtLoginLabel, 620)
-	for _, want := range []string{"Startup", "Open at login", "Start OpenPrintCast in the tray when you sign in to Windows."} {
+	scrollToControl(t, tt, ui.RoleSwitch, startWithWindowsLabel, 620)
+	for _, want := range []string{"Startup", "Start with Windows", "Start OpenPrintCast in the system tray when you sign in to Windows."} {
 		if !tt.HasText(want) {
 			t.Errorf("startup group missing %q; texts: %q", want, tt.Texts())
 		}
 	}
-	if _, ok := tt.Access(openAtLoginLabel); !ok {
-		t.Fatal("nothing is labelled Open at login")
+	if _, ok := tt.Access(startWithWindowsLabel); !ok {
+		t.Fatal("nothing is labelled Start with Windows")
 	}
-	if sw, ok := tt.AccessByRole(ui.RoleSwitch, openAtLoginLabel); !ok || sw.Checked {
-		t.Fatalf("Open at login: %+v, found %t", sw, ok)
+	if sw, ok := tt.AccessByRole(ui.RoleSwitch, startWithWindowsLabel); !ok || sw.Checked {
+		t.Fatalf("Start with Windows: %+v, found %t", sw, ok)
 	}
 }
 
@@ -79,19 +79,19 @@ func TestOpenAtLoginSwitchCallsItemAndKeepsStateOnSuccess(t *testing.T) {
 	app.startupEntry = item
 	tt := ui.NewTester(app.view, 860, 620)
 
-	if sw := toggleSwitch(t, tt, openAtLoginLabel); !sw.Checked {
+	if sw := toggleSwitch(t, tt, startWithWindowsLabel); !sw.Checked {
 		t.Fatal("switch did not turn on")
 	}
 	if !app.openAtLogin || !item.enabled {
 		t.Fatalf("state not kept: ui %t, item %t", app.openAtLogin, item.enabled)
 	}
-	if sw := toggleSwitch(t, tt, openAtLoginLabel); sw.Checked {
+	if sw := toggleSwitch(t, tt, startWithWindowsLabel); sw.Checked {
 		t.Fatal("switch did not turn off")
 	}
 	if want := []bool{true, false}; !reflect.DeepEqual(item.calls, want) {
 		t.Fatalf("SetEnabled calls = %v, want %v", item.calls, want)
 	}
-	if tt.HasText(openAtLoginFailed) {
+	if tt.HasText(startWithWindowsFailed) {
 		t.Fatal("a toast was shown on success")
 	}
 }
@@ -103,13 +103,13 @@ func TestOpenAtLoginSwitchRevertsAndToastsOnError(t *testing.T) {
 	app.startupEntry = item
 	tt := ui.NewTester(app.view, 860, 620)
 
-	if sw := toggleSwitch(t, tt, openAtLoginLabel); sw.Checked {
+	if sw := toggleSwitch(t, tt, startWithWindowsLabel); sw.Checked {
 		t.Fatal("switch stayed on after the item refused")
 	}
 	if app.openAtLogin {
 		t.Fatal("UI state not reverted")
 	}
-	if !tt.HasText("Couldn't change Open at login. Try again, or change it in Windows Settings > Apps > Startup.") {
+	if !tt.HasText("Couldn't change Start with Windows. Try again, or change it in Windows Settings > Apps > Startup.") {
 		t.Fatalf("toast missing; texts: %q", tt.Texts())
 	}
 	if len(item.calls) != 1 || !item.calls[0] {

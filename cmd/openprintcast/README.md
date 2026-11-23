@@ -40,7 +40,7 @@ Releases use plain `go build -ldflags "-H windowsgui ..."` instead (see
   backup that is used to recover a damaged file. A legacy `config.json`
   beside the executable is imported once. Closing the window hides it to
   the tray; Quit comes from the tray menu.
-- Settings > Startup "Open at login" calls `mygo.App.SetOpenAtLogin`, a
+- Settings > Startup "Start with Windows" calls `mygo.App.SetOpenAtLogin`, a
   per-user `Run` entry on Windows; the app then starts hidden in the tray.
   The installer's uninstall step removes that entry (it knows the value
   names mygo uses: the package identifier or the executable name).

@@ -11,12 +11,12 @@ const (
 	noLogFileText        = "Not available"
 )
 
-// startupGroup holds the Open at login switch; the login item applies it.
+// startupGroup holds the Start with Windows switch; the login item applies it.
 func (a *bridgeApp) startupGroup(c *ui.Context) {
 	groupHeader(c, "Startup", nil)
 	listGroupInset(c, settingInset, func() {
-		settingRow(c, openAtLoginLabel, openAtLoginDetail, func() {
-			if ui.Switch(c, &a.openAtLogin).Label(openAtLoginLabel).Changed() {
+		settingRow(c, startWithWindowsLabel, startWithWindowsDetail, func() {
+			if ui.Switch(c, &a.openAtLogin).Label(startWithWindowsLabel).Changed() {
 				a.openAtLoginChanged(c)
 			}
 		})

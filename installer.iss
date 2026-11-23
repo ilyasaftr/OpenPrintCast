@@ -82,7 +82,7 @@ begin
     StopRunningApp();
 end;
 
-// Deletes the "Open at login" Run entry of the app (and Task Manager's
+// Deletes the "Start with Windows" Run entry of the app (and Task Manager's
 // on/off state for it) for the user running the uninstaller.
 procedure RemoveOpenAtLoginValue(ValueName: String);
 begin
@@ -92,7 +92,7 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  // Keep the user's "Open at login" choice on silent (scripted or managed)
+  // Keep the user's "Start with Windows" choice on silent (scripted or managed)
   // uninstalls, and clean up only on an interactive uninstall.
   if (CurUninstallStep = usUninstall) and not UninstallSilent() then
   begin

@@ -7,9 +7,9 @@ import (
 
 // Start-at-login wording.
 const (
-	openAtLoginLabel  = "Open at login"
-	openAtLoginDetail = "Start OpenPrintCast in the tray when you sign in to Windows."
-	openAtLoginFailed = "Couldn't change Open at login. Try again, or change it in Windows Settings > Apps > Startup."
+	startWithWindowsLabel  = "Start with Windows"
+	startWithWindowsDetail = "Start OpenPrintCast in the system tray when you sign in to Windows."
+	startWithWindowsFailed = "Couldn't change Start with Windows. Try again, or change it in Windows Settings > Apps > Startup."
 )
 
 // startupItem is the system's "start with the user's session" entry.
@@ -70,6 +70,6 @@ func (a *bridgeApp) openAtLoginChanged(c *ui.Context) {
 	if err := a.startup().SetEnabled(enabled); err != nil {
 		a.openAtLogin = !enabled
 		componentLogger(componentApp).Warn("set open at login failed", "enabled", enabled, "err", err)
-		c.Toast(openAtLoginFailed)
+		c.Toast(startWithWindowsFailed)
 	}
 }

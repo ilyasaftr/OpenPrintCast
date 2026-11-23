@@ -98,7 +98,7 @@ type bridgeApp struct {
 	logs     logControl
 	openPath pathOpener
 
-	// startupEntry is the sign-in item behind the Open at login switch
+	// startupEntry is the sign-in item behind the Start with Windows switch
 	// (nil: always off) and openAtLogin the state that switch shows.
 	startupEntry startupItem
 	openAtLogin  bool
