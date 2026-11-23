@@ -89,6 +89,18 @@ go test ./...                # test
 CI checks amd64 and arm64. Pushing a `v*` tag builds a program and an installer
 (`installer.iss`, Inno Setup) for each.
 
+## Built with
+
+- [MyGo](https://github.com/egoist/mygo) — the native UI, system tray and
+  startup.
+- [goipp](https://github.com/OpenPrinting/goipp) — the IPP wire protocol.
+- [miekg/dns](https://github.com/miekg/dns) — DNS-SD and mDNS messages.
+- [gosnmp](https://github.com/gosnmp/gosnmp) — read-only SNMP for supply
+  levels.
+- [go-pdfium](https://github.com/klippa-app/go-pdfium) and
+  [wazero](https://github.com/tetratelabs/wazero) — PDFium running as
+  WebAssembly for PDF work.
+
 ## License
 
 [GPL-3.0](LICENSE)
