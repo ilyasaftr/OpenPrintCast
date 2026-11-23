@@ -95,7 +95,7 @@ func (a *bridgeApp) sheetFields(c *ui.Context, p *core.PrinterInfo, nameErr stri
 			if in.Submitted() && nameErr == "" {
 				submitted = true
 			}
-		}).Description("Shown on iPhone, iPad and Mac. Leave empty to use the Windows name.").Error(nameErr)
+		}).Description("Shown on iPhone, iPad, Mac and Android. Leave empty to use the Windows name.").Error(nameErr)
 		ui.Field(c, "Location", func() {
 			in := ui.TextInput(c, &a.draftLocation).Placeholder("For example: Office, 2nd floor")
 			if in.Submitted() && nameErr == "" {

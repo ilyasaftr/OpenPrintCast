@@ -15,7 +15,7 @@
 </p>
 
 OpenPrintCast is a small tray app that shares the printers on a Windows PC as
-AirPrint and IPP Everywhere printers. Phones and Macs find them automatically;
+AirPrint and IPP Everywhere printers. iPhone, iPad, Mac and Android find them automatically;
 there is nothing to install on the device.
 
 ## Features

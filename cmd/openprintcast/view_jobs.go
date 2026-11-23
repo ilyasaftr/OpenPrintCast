@@ -85,7 +85,7 @@ func (a *bridgeApp) jobsToolbar(c *ui.Context, jobs []core.JobEntry) {
 // printers page.
 func (a *bridgeApp) jobsEmptyState(c *ui.Context) {
 	emptyState(c, printerIcon, "No Print Jobs",
-		"When someone prints to a shared printer from an iPhone, iPad or Mac, the job shows up here.", func() {
+		"When someone prints to a shared printer from an iPhone, iPad, Mac or Android device, the job shows up here.", func() {
 			if ui.Button(c, "Show Printers").Clicked() {
 				a.tab = tabPrinters
 			}

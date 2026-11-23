@@ -6,7 +6,7 @@ import (
 
 // appTagline sits under the app name in the header; its tooltip shows it
 // whole where the window is too narrow for it.
-const appTagline = "Print from mobile devices and Macs to this PC's printers"
+const appTagline = "Print from iPhone, iPad, Mac and Android to this PC's printers"
 
 // pauseButtonWidth fits the wider of the Pause and Resume labels.
 const pauseButtonWidth = 85

@@ -150,7 +150,7 @@ func TestPausedShowsBannerAndResume(t *testing.T) {
 	app.shared.SetPaused(true)
 	app.paused = true
 	tt := ui.NewTester(app.view, 860, 620)
-	for _, want := range []string{"Paused", "Sharing is paused. Print jobs from iPhone, iPad and Mac are rejected until you resume.", "Resume"} {
+	for _, want := range []string{"Paused", "Sharing is paused. Print jobs from iPhone, iPad, Mac and Android are rejected until you resume.", "Resume"} {
 		if !tt.HasText(want) {
 			t.Errorf("paused view missing %q; texts: %q", want, tt.Texts())
 		}

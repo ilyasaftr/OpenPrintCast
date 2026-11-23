@@ -52,7 +52,7 @@ func summarize(paused bool, shared, total int, online bool) (string, level) {
 func bannerMessage(paused, online bool) (string, level) {
 	switch {
 	case paused:
-		return "Sharing is paused. Print jobs from iPhone, iPad and Mac are rejected until you resume.", levelWarn
+		return "Sharing is paused. Print jobs from iPhone, iPad, Mac and Android are rejected until you resume.", levelWarn
 	case !online:
 		return "No network connection found. Connect this PC to Wi-Fi or Ethernet so your devices can find it.", levelError
 	}
@@ -64,7 +64,7 @@ func connectionLine(host, ip string, port int) string {
 	if ip == "" {
 		return "Not connected to a network."
 	}
-	return fmt.Sprintf("Visible on your network as %s (%s:%d). On iPhone, iPad or Mac choose Print, then pick the printer.", host, ip, port)
+	return fmt.Sprintf("Visible on your network as %s (%s:%d). On iPhone, iPad, Mac or Android, choose Print, then pick the printer.", host, ip, port)
 }
 
 func matchesPrinter(p core.PrinterInfo, query string) bool {
