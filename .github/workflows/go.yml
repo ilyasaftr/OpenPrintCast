@@ -1,0 +1,219 @@
+name: go
+
+on:
+  push:
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+      - "cmd/**"
+      - "assets/**"
+      - "scripts/**"
+      - ".github/actions/**"
+      - ".github/workflows/go.yml"
+  pull_request:
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+      - "cmd/**"
+      - "assets/**"
+      - "scripts/**"
+      - ".github/actions/**"
+      - ".github/workflows/go.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request or branch supersedes the running
+# checks. Pushes to the default branch are not cancelled, so every commit
+# there keeps a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CGO_ENABLED: "0"
+  # Pinned tool versions, each published at least 7 days before it was chosen
+  # (project policy, see .github/dependabot.yml). Change them here only.
+  STATICCHECK_VERSION: "v0.8.2" # published 2026-10-12
+  GOVULNCHECK_VERSION: "v1.9.0" # published 2026-10-11
+
+# The jobs share no state, so they all start at once: the slowest one (the
+# tests) sets the total time.
+jobs:
+  lint:
+    name: format, vet, build (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      - name: Check formatting (gofmt)
+        if: matrix.arch == 'amd64'
+        run: |
+          files="$(gofmt -l cmd internal assets)"
+          if [ -n "$files" ]; then
+            echo "::error::These files are not gofmt-formatted. Run 'gofmt -w cmd internal assets' and commit:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Check go.mod and go.sum are tidy
+        if: matrix.arch == 'amd64'
+        run: |
+          if ! go mod tidy -diff; then
+            echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit the result."
+            exit 1
+          fi
+
+      - name: Vet (linux)
+        if: matrix.arch == 'amd64'
+        run: go vet ./...
+
+      - name: Vet (windows/${{ matrix.arch }})
+        run: GOOS=windows GOARCH=${{ matrix.arch }} go vet ./...
+
+      # Compiles the program and every test binary for the target without
+      # running them (the arm64 ones cannot run on these runners).
+      - name: Build (windows/${{ matrix.arch }})
+        run: |
+          GOOS=windows GOARCH=${{ matrix.arch }} go build ./...
+          GOOS=windows GOARCH=${{ matrix.arch }} go test -exec=true ./...
+
+  test:
+    name: test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      - uses: ./.github/actions/cups-testdata
+
+      - name: Run tests
+        run: go test ./...
+
+      # A ratchet run that cannot read a document fails instead of running a
+      # truncated suite, and a skipped CUPS test would let the conformance
+      # check silently stop running, so each must show as passed.
+      - name: Check the CUPS ipptool tests ran (not skipped)
+        run: |
+          go test -count=1 -v -run '^(TestCUPSIPPWorkflow|TestIPPConformanceRatchet|TestIPPConformanceRatchetOneSided)$' ./internal/net | tee "$RUNNER_TEMP/cups-test.log"
+          grep -q -e '^--- PASS: TestCUPSIPPWorkflow' "$RUNNER_TEMP/cups-test.log"
+          grep -q -e '^--- PASS: TestIPPConformanceRatchet ' "$RUNNER_TEMP/cups-test.log"
+          grep -q -e '^--- PASS: TestIPPConformanceRatchetOneSided ' "$RUNNER_TEMP/cups-test.log"
+
+  race:
+    name: race detector (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      - uses: ./.github/actions/cups-testdata
+
+      # The race detector needs cgo, unlike the rest of this workflow. All
+      # packages run under it: they are pure Go and run on Linux, and the
+      # server, job log and logger are concurrent.
+      - name: Run tests with the race detector
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./...
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      # Fails on vulnerabilities in code the program can reach, including
+      # the Go standard library of the toolchain that go.mod selects.
+      - name: govulncheck
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+
+  staticcheck:
+    name: staticcheck (windows/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      # staticcheck reads GOOS and GOARCH, which `go run` would also apply to
+      # building the tool, hence go install first.
+      - name: Install staticcheck
+        run: GOBIN="$RUNNER_TEMP/bin" go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}"
+
+      # The shipped app is Windows-only, and some code is only used from
+      # Windows files (U1000 "unused" would be wrong on Linux), so the full
+      # check targets Windows.
+      - name: staticcheck (windows/${{ matrix.arch }})
+        run: GOOS=windows GOARCH=${{ matrix.arch }} "$RUNNER_TEMP/bin/staticcheck" ./...
+
+      # Covers the files that only build on other systems; unused-code
+      # detection (U1000) is left to the Windows pass above.
+      - name: staticcheck (linux, other-OS files)
+        if: matrix.arch == 'amd64'
+        run: '"$RUNNER_TEMP/bin/staticcheck" -checks "inherit,-U1000" ./...'
+
+  windows:
+    name: test Windows PDF printer
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      OPENPRINTCAST_TEST_PDF_PRINTER: "Microsoft Print to PDF"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: "go.mod"
+          cache-dependency-path: "go.sum"
+
+      # Runs the platform-specific code of these packages (the MoveFileEx
+      # atomic replace in core) and the real file work of the log rotator on
+      # a real Windows runner.
+      - name: Test portable packages on Windows
+        run: go test -count=1 ./internal/core ./internal/logfile ./internal/applog ./internal/net ./internal/zeroconf
+
+      - name: Test GDI PDF output
+        run: go test -v -run '^TestWindowsPDF(GDI|BridgeOutput)$' -count=3 -timeout=5m ./internal/winspool
+
+      # Print to Folder needs no Windows printer; this runs its file work
+      # (staging, hard-link publish, unique names) on a real NTFS volume.
+      - name: Test Print to Folder output
+        run: go test -count=1 -run '^(TestFolder|TestPublishFolderPDF)' -timeout=5m ./internal/winspool

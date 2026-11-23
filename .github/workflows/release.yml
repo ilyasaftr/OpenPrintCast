@@ -1,0 +1,259 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+# prepare -> build (one job per processor, in parallel) -> publish.
+# Tagged runs create a draft release first, every build attaches its files to
+# it, and publish checksums them and makes it public only when every build
+# succeeded. The files travel through the release itself, never through
+# Actions artifact storage, whose account-wide quota is shared with other
+# repositories. Manual runs (no tag) build the same files and keep them as an
+# artifact for a week.
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.display }}
+      numeric: ${{ steps.version.outputs.numeric }}
+      is-tag: ${{ steps.version.outputs.is_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Version rules (single source of truth for the installer and the asset names):
+      #   display version  = tag without the leading "v"      v0.0.1 -> 0.0.1
+      #   numeric version  = major.minor.patch.<N>            v0.0.1 -> 0.0.1.0, v0.2.9-beta.15 -> 0.2.9.15
+      #     N = the trailing number of the prerelease part (beta.15 -> 15, rc.1 -> 1),
+      #     or 0 when there is none (stable releases, "-beta"). Each part must be <= 65535.
+      # Runs without a version tag (workflow_dispatch) use 0.0.0-dev-<sha7> / 0.0.0.0.
+      - name: Derive the version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$IS_TAG" = true ]; then
+            re='^v([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$'
+            if ! [[ $REF_NAME =~ $re ]]; then
+              echo "::error::Tag '$REF_NAME' is not vMAJOR.MINOR.PATCH[-prerelease]"
+              exit 1
+            fi
+            major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]} pre_part=${BASH_REMATCH[5]}
+            pre=0
+            if [[ $pre_part =~ ([0-9]+)$ ]]; then pre=${BASH_REMATCH[1]}; fi
+            for part in "$major" "$minor" "$patch" "$pre"; do
+              if [ "${#part}" -gt 5 ] || [ "$part" -gt 65535 ]; then
+                echo "::error::Version component $part exceeds 65535"
+                exit 1
+              fi
+            done
+            display=${REF_NAME#v}
+            numeric="$major.$minor.$patch.$pre"
+          else
+            display="0.0.0-dev-${SHA:0:7}"
+            numeric="0.0.0.0"
+          fi
+          echo "Version: $display (numeric $numeric)"
+          {
+            echo "display=$display"
+            echo "numeric=$numeric"
+            echo "is_tag=$IS_TAG"
+            echo "prerelease=$([[ $display == *-* ]] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        if: steps.version.outputs.is_tag == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.display }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; its files are replaced."
+            exit 0
+          fi
+          {
+            if [[ $VERSION == *-beta* ]]; then
+              echo "Test build: Windows printer and mobile-device interoperability have not yet been verified. IPP Everywhere support is incomplete."
+              echo
+            fi
+            echo "**Downloads** (amd64 is for Intel and AMD processors, arm64 for ARM processors)"
+            echo "- \`OpenPrintCast-Setup-$VERSION-<arch>.exe\`: installer. Installs for all users (needs administrator rights) and can add the optional Windows Firewall rules."
+            echo "- \`OpenPrintCast-<arch>.exe\`: standalone program. No installation; runs from any folder."
+            echo "- \`SHA256SUMS.txt\`: SHA-256 checksums of every .exe."
+          } > notes.md
+          flags=(--draft --verify-tag --title "$TAG" --notes-file notes.md --generate-notes)
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "${flags[@]}"
+
+  build:
+    name: build windows/${{ matrix.arch }}
+    needs: prepare
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+      APP_NUMERIC_VERSION: ${{ needs.prepare.outputs.numeric }}
+      ARCH: ${{ matrix.arch }}
+      INSTALLER_NAME: OpenPrintCast-Setup-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.exe
+      OPENPRINTCAST_TEST_PDF_PRINTER: "Microsoft Print to PDF"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The runner is x64, so only the amd64 program can be run here. The
+      # arm64 one is cross-compiled; vet type-checks its code and tests.
+      - name: Test PDF rendering without standard handles
+        if: matrix.arch == 'amd64'
+        run: go test -count=1 -run '^TestRenderPDFWithoutStandardHandles$' ./internal/winspool
+
+      - name: Test Windows PDF printer and media settings
+        if: matrix.arch == 'amd64'
+        run: go test -count=1 -run '^TestWindows(PDFGDI|PDFBridgeOutput|MediaSettings)$' -timeout=5m ./internal/winspool
+
+      - name: Vet (windows/arm64)
+        if: matrix.arch == 'arm64'
+        env:
+          GOARCH: arm64
+        run: go vet ./...
+
+      - name: Build the program (pure Go, no cgo, no console window)
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+        run: go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=v${{ env.APP_VERSION }} -X main.updateFeedURL=https://api.github.com/repos/${{ github.repository }}/releases" -o "dist/OpenPrintCast-${{ matrix.arch }}.exe" ./cmd/openprintcast
+
+      # The windows image ships Inno Setup (6.7.1 in image 20261116.370.1), but
+      # the version changes with image updates. Use it only if it is exactly the
+      # pin below and otherwise install the pin from Chocolatey, so the installer
+      # compiler never changes unnoticed.
+      - name: Build the installer (Inno Setup)
+        shell: pwsh
+        env:
+          INNO_VERSION: "6.7.1"
+        run: |
+          function Find-Iscc {
+            $candidates = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+            )
+            foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
+            $found = Get-ChildItem -Path ${env:ProgramFiles(x86)}, $env:ProgramFiles, 'C:\ProgramData\chocolatey\lib' -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if ($found) { return $found.FullName }
+            return $null
+          }
+          function Test-Pinned($path) {
+            if (-not $path) { return $false }
+            return ((Get-Item -LiteralPath $path).VersionInfo.ProductVersion -like "$($env:INNO_VERSION)*")
+          }
+
+          $iscc = Find-Iscc
+          if (-not (Test-Pinned $iscc)) {
+            Write-Host "Inno Setup $($env:INNO_VERSION) not found (found: $iscc); installing from Chocolatey"
+            choco install innosetup --version=$env:INNO_VERSION --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed ($LASTEXITCODE)" }
+            $iscc = Find-Iscc
+          }
+          if (-not $iscc) { throw 'ISCC.exe not found' }
+          Write-Host "Using $iscc (ProductVersion $((Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion))"
+
+          & $iscc /Q "/DMyAppVersion=$($env:APP_VERSION)" "/DMyAppNumericVersion=$($env:APP_NUMERIC_VERSION)" "/DMyArch=$($env:ARCH)" installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+
+          $setup = Join-Path 'dist' $env:INSTALLER_NAME
+          if (-not (Test-Path -LiteralPath $setup)) { throw "Installer not found: $setup" }
+          if ((Get-Item -LiteralPath $setup).Length -le 1MB) { throw "Installer is suspiciously small: $setup" }
+
+      # The run summary lists what was built, so a run is checkable even when
+      # no artifact can be stored.
+      - name: List the build output
+        shell: pwsh
+        run: |
+          $rows = foreach ($name in @("OpenPrintCast-$($env:ARCH).exe", $env:INSTALLER_NAME)) {
+            $path = Join-Path 'dist' $name
+            if (-not (Test-Path -LiteralPath $path)) { throw "Missing $path" }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "| ``$name`` | $((Get-Item -LiteralPath $path).Length) | ``$hash`` |"
+          }
+          $summary = @("### Build output (windows/$($env:ARCH))", '', '| File | Bytes | SHA-256 |', '| --- | ---: | --- |') + $rows
+          $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Attach to the draft release
+        if: needs.prepare.outputs.is-tag == 'true'
+        shell: pwsh
+        run: gh release upload "$env:GITHUB_REF_NAME" "dist/OpenPrintCast-$($env:ARCH).exe" "dist/$($env:INSTALLER_NAME)" --clobber
+
+      # Only manual runs store artifacts. They count toward the account's
+      # Actions storage quota, so a full quota must not fail a build whose
+      # files were produced.
+      - name: Upload build artifacts (no release for non-tag runs)
+        id: upload
+        if: needs.prepare.outputs.is-tag != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: OpenPrintCast-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            dist/OpenPrintCast-${{ matrix.arch }}.exe
+            dist/${{ env.INSTALLER_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Warn that the artifact upload failed
+        if: steps.upload.outcome == 'failure'
+        shell: pwsh
+        run: Write-Host "::warning title=Artifact upload failed::The exe and installer were built (see the Build output summary), but could not be stored as an artifact. The account's Actions storage quota may be full."
+
+  publish:
+    name: publish release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.is-tag == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checksum the files and publish
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          gh release download "$TAG" --dir dist --pattern '*.exe'
+          count=$(find dist -name '*.exe' | wc -l)
+          if [ "$count" -ne 4 ]; then
+            echo "::error::Expected 4 .exe files (a program and an installer for amd64 and arm64), found $count"
+            ls -l dist
+            exit 1
+          fi
+          (cd dist && sha256sum -- *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release upload "$TAG" dist/SHA256SUMS.txt --clobber
+          gh release edit "$TAG" --draft=false

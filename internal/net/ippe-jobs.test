@@ -1,0 +1,83 @@
+{
+	NAME "Create a job for a separately closed document"
+	OPERATION Create-Job
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+	EXPECT job-id OF-TYPE integer
+}
+{
+	NAME "Send the document without closing the job"
+	OPERATION Send-Document
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR integer job-id $job-id
+	ATTR name requesting-user-name bridge-test
+	ATTR mimeMediaType document-format application/pdf
+	ATTR boolean last-document false
+	FILE $filename
+	STATUS successful-ok
+	EXPECT job-state OF-TYPE enum WITH-VALUE 3
+}
+{
+	NAME "Close the job and print its document"
+	OPERATION Close-Job
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR integer job-id $job-id
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+	EXPECT job-state OF-TYPE enum WITH-VALUE 5,9
+}
+{
+	NAME "Wait for the closed job"
+	OPERATION Get-Job-Attributes
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR integer job-id $job-id
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+	EXPECT job-state OF-TYPE enum WITH-VALUE 9 REPEAT-NO-MATCH REPEAT-LIMIT 30
+}
+{
+	NAME "Create a job to cancel"
+	OPERATION Create-Job
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+	EXPECT job-id OF-TYPE integer
+}
+{
+	NAME "Cancel my jobs"
+	OPERATION Cancel-My-Jobs
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+}
+{
+	NAME "Check the canceled job"
+	OPERATION Get-Job-Attributes
+	GROUP operation-attributes-tag
+	ATTR charset attributes-charset utf-8
+	ATTR naturalLanguage attributes-natural-language en
+	ATTR uri printer-uri $uri
+	ATTR integer job-id $job-id
+	ATTR name requesting-user-name bridge-test
+	STATUS successful-ok
+	EXPECT job-state OF-TYPE enum WITH-VALUE 7
+}

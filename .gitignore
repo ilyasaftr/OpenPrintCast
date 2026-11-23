@@ -1,0 +1,22 @@
+# Byte-compiled / cached
+__pycache__/
+*.pyc
+
+# Build artifacts
+/build
+/dist
+/Release
+
+# Logs
+*.log
+
+# Rust build output
+rust/target/
+
+# Environment
+.env
+
+SOCIAL_MEDIA.md
+
+# Sample documents downloaded by scripts/fetch-cups-testdata.sh
+/internal/net/testdata/cups-cache/

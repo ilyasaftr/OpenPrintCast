@@ -1,0 +1,31 @@
+name: CUPS test documents
+description: >
+  Installs ipptool and fetches the documents the CUPS conformance tests send,
+  so TestCUPSIPPWorkflow and the TestIPPConformanceRatchet tests run in full
+  instead of skipping themselves.
+
+runs:
+  using: composite
+  steps:
+    # Ubuntu's cups-ipp-utils ships ipptool and the *.test files but none of
+    # the documents they send, so scripts/fetch-cups-testdata.sh downloads
+    # those (CUPS 2.4.7 sources at a pinned commit and the PWG Raster
+    # samples, every file checked against a SHA-256) into a git-ignored
+    # directory the tests read first. The script is idempotent, so the cache
+    # only saves the download.
+    - name: Install ipptool
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends cups-ipp-utils
+        test -f /usr/share/cups/ipptool/get-printer-attributes.test
+
+    - name: Cache the CUPS test documents
+      uses: actions/cache@v6
+      with:
+        path: internal/net/testdata/cups-cache
+        key: cups-testdata-${{ hashFiles('scripts/fetch-cups-testdata.sh') }}
+
+    - name: Fetch the CUPS test documents
+      shell: bash
+      run: bash scripts/fetch-cups-testdata.sh

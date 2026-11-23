@@ -1,0 +1,32 @@
+version: 2
+
+# Project policy: a release is not adopted before it has been public for a
+# week, so every ecosystem has a 7-day cooldown. The staticcheck and
+# govulncheck versions pinned in .github/workflows/go.yml are not tracked by
+# Dependabot; bump them by hand under the same rule.
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
