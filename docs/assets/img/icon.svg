@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>OpenPrintCast</title>
+  <!-- Full design, used from 40 px up; icon-small.svg is the variant up to 32 px. -->
+  <defs>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="256" y1="32" x2="768" y2="992">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <!-- Leaves a channel of the tile around the body, so the tray and the
+         sheet read as separate pieces behind it. -->
+    <mask id="behindBody" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <rect x="150" y="500" width="724" height="270" rx="88" fill="#000" stroke="#000" stroke-width="36"/>
+    </mask>
+  </defs>
+
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#tile)"/>
+
+  <!-- wireless dot and waves -->
+  <g fill="none" stroke="#fff" stroke-width="44" stroke-linecap="round">
+    <path d="M448.36 296.36A90 90 0 0 1 575.64 296.36"/>
+    <path d="M391.79 239.79A170 170 0 0 1 632.21 239.79"/>
+    <path d="M335.22 183.22A250 250 0 0 1 688.78 183.22" stroke-opacity=".55"/>
+  </g>
+  <circle cx="512" cy="360" r="44" fill="#fff"/>
+
+  <!-- paper tray and the sheet coming out, behind the body -->
+  <g fill="#fff" mask="url(#behindBody)">
+    <rect x="290" y="440" width="444" height="120" rx="32"/>
+    <rect x="316" y="730" width="392" height="200" rx="30"/>
+  </g>
+  <g stroke="#93c5fd" stroke-width="22" stroke-linecap="round">
+    <path d="M390 842H634"/>
+    <path d="M390 888H540"/>
+  </g>
+
+  <!-- printer body with its paper slot and status light -->
+  <rect x="150" y="500" width="724" height="270" rx="88" fill="#fff"/>
+  <rect x="230" y="676" width="564" height="28" rx="14" fill="#1d4ed8"/>
+  <circle cx="780" cy="590" r="28" fill="#3b82f6"/>
+</svg>
