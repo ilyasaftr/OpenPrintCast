@@ -110,10 +110,16 @@ func (f *Feed) Fetch(ctx context.Context) ([]Release, error) {
 	}
 	defer resp.Body.Close()
 	releases, err := f.answer(resp, target)
-	if err != nil && errors.Is(caller.Err(), context.Canceled) {
+	if err == nil {
+		return releases, nil
+	}
+	if errors.Is(caller.Err(), context.Canceled) {
 		return nil, caller.Err()
 	}
-	return releases, err
+	if ctx.Err() != nil {
+		return nil, transportError(ctx.Err())
+	}
+	return nil, err
 }
 
 // get sends the request, with the ETag of the answer it remembers.
