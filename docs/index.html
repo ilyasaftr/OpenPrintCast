@@ -109,7 +109,7 @@
           "name": "Is it private and secure?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Jobs are accepted over unencrypted IPP without authentication, so use a trusted network. Supply levels are read from the printer’s own address over read-only SNMP. The update check sends one HTTPS request to this repository’s releases and never installs anything. SNMP and automatic update checks can both be turned off in Settings."
+            "text": "Print jobs go straight from your device to your PC — no account, no cloud. Connections aren’t encrypted, so use a network you trust. The only outside contact is an optional update check to GitHub, which you can turn off in Settings."
           }
         }
       ]
@@ -256,9 +256,9 @@
     <section class="section" aria-labelledby="formats-title">
       <h2 id="formats-title">Prints what your devices send.</h2>
       <ul class="chips" aria-label="Supported formats">
-        <li data-anim>PDF</li><li data-anim>JPEG</li><li data-anim>PNG</li><li data-anim>Apple URF</li><li data-anim>PWG Raster</li><li data-anim>gzip</li><li data-anim>deflate</li>
+        <li data-anim>PDF</li><li data-anim>JPEG</li><li data-anim>PNG</li><li data-anim>Apple URF</li><li data-anim>PWG Raster</li>
       </ul>
-      <p class="note">Devices convert other formats before sending. IPP Everywhere is declared for printers that report supply levels, checked by the CUPS <code>ipptool</code> suites in CI (not PWG-certified).</p>
+      <p class="note">Anything else, your device converts before sending — if you can see Print, it works.</p>
     </section>
 
     <section class="section" id="faq" aria-labelledby="faq-title">
@@ -278,7 +278,7 @@
         </details>
         <details data-anim>
           <summary>Is it private and secure?</summary>
-          <p>Jobs are accepted over unencrypted IPP without authentication, so use a trusted network. Supply levels are read from the printer’s own address over read-only SNMP. The update check sends one HTTPS request to this repository’s releases and never installs anything. SNMP and automatic update checks can both be turned off in Settings.</p>
+          <p>Print jobs go straight from your device to your PC — no account, no cloud. Connections aren’t encrypted, so use a network you trust. The only outside contact is an optional update check to GitHub, which you can turn off in Settings.</p>
         </details>
       </div>
     </section>
