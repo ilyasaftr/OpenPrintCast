@@ -75,7 +75,7 @@ func handlePrintJob(c *ippRequest) *goipp.Message {
 		return rsp
 	}
 	queueIPPJob(c.req, document, c.printer, c.shared, c.host, c.port, job)
-	rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port)
+	rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port, c.shared)
 	return rsp
 }
 
@@ -99,7 +99,7 @@ func handleCreateJob(c *ippRequest) *goipp.Message {
 		rsp.Code = goipp.Code(goipp.StatusErrorTooManyJobs)
 		return rsp
 	}
-	rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port)
+	rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port, c.shared)
 	return rsp
 }
 
@@ -168,7 +168,7 @@ func (c *ippRequest) receiveDocument(closeJob bool) *goipp.Message {
 	}
 	rsp := c.respond(status)
 	if status == goipp.StatusOk {
-		rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port)
+		rsp.Job = ippJobAttrs(job, c.printer, c.host, c.port, c.shared)
 	}
 	return rsp
 }

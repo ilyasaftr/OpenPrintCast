@@ -19,6 +19,10 @@ func (s *SharedState) CancelJob(id string) bool { return s.active.cancel(id) }
 func (r *printJobRun) track() {
 	r.useDirectContext()
 	r.countPages()
+	r.watchProgress()
+	if r.reserved != nil {
+		r.shared.linkJobEntry(r.printer.ID, r.reserved.id, r.entry.ID)
+	}
 	r.unregister = r.shared.active.register(r.entry.ID, r.cancelHandle())
 	r.entry.SetStatus(core.JobPrinting)
 	r.shared.Jobs.Push(r.entry)

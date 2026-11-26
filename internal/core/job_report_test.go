@@ -55,3 +55,19 @@ func TestWithPageCounterInnermostWins(t *testing.T) {
 		t.Fatalf("outer=%d inner=%d, want 0 and 2", outer, inner)
 	}
 }
+
+func TestReportProgressCallsReporter(t *testing.T) {
+	calls := 0
+	ctx := WithProgressReporter(context.Background(), func() { calls++ })
+	ReportProgress(ctx)
+	ReportProgress(ctx)
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestReportProgressWithoutReporterIsSilent(t *testing.T) {
+	ReportProgress(context.Background())
+	ReportProgress(nil)
+	ReportProgress(WithProgressReporter(context.Background(), nil))
+}

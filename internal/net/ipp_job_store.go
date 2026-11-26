@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenPrinting/goipp"
@@ -28,6 +29,13 @@ type ippJob struct {
 	timer      *time.Timer
 	ctx        context.Context
 	cancel     context.CancelFunc
+	// progress is the unix-nanotime of the last visible spooling progress,
+	// shared with the spooler's heartbeat reporter. The watchdog aborts the
+	// job when nothing advances for too long. nil until processing starts.
+	progress *atomic.Int64
+	// entryID is the job-log entry of the spooling run, linked when the run
+	// starts so the watchdog can close it out when it aborts the job.
+	entryID string
 }
 
 const pendingJobTimeout = 10 * time.Minute
@@ -187,4 +195,16 @@ func (s *ippJobStore) releaseIPPDocument(size int) {
 	s.mu.Lock()
 	s.releaseProcessing(size)
 	s.mu.Unlock()
+}
+
+// linkJobEntry records which job-log entry spools the job, or does nothing
+// when the job is unknown or no longer processing.
+func (s *ippJobStore) linkJobEntry(printerID string, id uint32, entryID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.indexOf(printerID, id, jobStateProcessing)
+	if i < 0 {
+		return
+	}
+	s.ippJobs[i].entryID = entryID
 }

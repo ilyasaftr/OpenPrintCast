@@ -2,6 +2,7 @@ package net
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenPrinting/goipp"
@@ -88,6 +89,8 @@ func (s *ippJobStore) closeForProcessing(job *ippJob, doc []byte, format string,
 	} else {
 		job.state = jobStateProcessing
 		job.processing = time.Now()
+		job.progress = new(atomic.Int64)
+		job.progress.Store(time.Now().UnixNano())
 		if cancellable {
 			job.ctx, job.cancel = context.WithCancel(context.Background())
 		}

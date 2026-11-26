@@ -3,6 +3,7 @@ package net
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -55,7 +56,36 @@ func jobStateReason(state int) string {
 	}
 }
 
-func ippJobAttrs(job ippJob, printer core.PrinterInfo, host string, port int) goipp.Attributes {
+// jobStateReasons computes the job-state-reasons keywords (RFC 8011 section
+// 5.3.8). Terminal states report their fixed reason; a processing job
+// reflects the live driver status, so a client polling a job that cannot
+// advance learns why: printer-stopped when the queue is stopped, and
+// resources-are-not-ready when Windows reports the device needs media.
+func jobStateReasons(job ippJob, printer core.PrinterInfo, shared *SharedState) []string {
+	if job.state != jobStateProcessing {
+		return []string{jobStateReason(job.state)}
+	}
+	var reasons []string
+	if shared != nil {
+		if provider, ok := capabilitySource(shared, printer).(statusProvider); ok {
+			state, driverReasons, known := provider.IPPStatus(printer.WindowsName)
+			if known {
+				if state == printerStateStopped {
+					reasons = append(reasons, "printer-stopped")
+				}
+				if slices.Contains(driverReasons, "media-needed") {
+					reasons = append(reasons, "resources-are-not-ready")
+				}
+			}
+		}
+	}
+	if len(reasons) == 0 {
+		return []string{"none"}
+	}
+	return reasons
+}
+
+func ippJobAttrs(job ippJob, printer core.PrinterInfo, host string, port int, shared *SharedState) goipp.Attributes {
 	attrs := goipp.Attributes{
 		goipp.MakeAttr("job-id", goipp.TagInteger, goipp.Integer(int32(job.id))),
 		stringsAttr("job-uri", goipp.TagURI, job.uri),
@@ -63,7 +93,7 @@ func ippJobAttrs(job ippJob, printer core.PrinterInfo, host string, port int) go
 		stringsAttr("job-name", goipp.TagName, job.name),
 		stringsAttr("job-originating-user-name", goipp.TagName, job.user),
 		goipp.MakeAttr("job-state", goipp.TagEnum, goipp.Integer(job.state)),
-		keywordAttr("job-state-reasons", jobStateReason(job.state)),
+		keywordAttr("job-state-reasons", jobStateReasons(job, printer, shared)...),
 		jobTime("time-at-creation", job.created),
 		jobTime("time-at-processing", job.processing),
 		jobTime("time-at-completed", job.completed),

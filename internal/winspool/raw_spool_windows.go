@@ -3,10 +3,13 @@
 package winspool
 
 import (
+	"context"
 	"fmt"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/ilyasaftr/OpenPrintCast/internal/core"
 )
 
 // docInfo1W mirrors the DOC_INFO_1W struct: three LPWSTR pointers.
@@ -23,11 +26,11 @@ func platformSpool(printer string, data []byte, mime string, settings RenderSett
 	if needsRasterPath(base) {
 		return spoolRendered(printer, data, base, settings)
 	}
-	return spoolRaw(printer, data, mime)
+	return spoolRaw(settings.ctx, printer, data, mime)
 }
 
 // spoolRaw sends data to the printer unchanged as a RAW job.
-func spoolRaw(printer string, data []byte, mime string) error {
+func spoolRaw(ctx context.Context, printer string, data []byte, mime string) error {
 	handle, err := openPrinter(printer)
 	if err != nil {
 		return err
@@ -37,7 +40,7 @@ func spoolRaw(printer string, data []byte, mime string) error {
 	if err := startRawDocument(handle, printer, mime); err != nil {
 		return err
 	}
-	result := writeRawChunks(handle, printer, data)
+	result := writeRawChunks(ctx, handle, printer, data)
 	// EndDocPrinter must run whenever a job was started, even if a chunk
 	// write failed.
 	if r1, _, errno := procEndDocPrinter.Call(handle); r1 == 0 && result == nil {
@@ -72,8 +75,9 @@ func startRawDocument(handle uintptr, printer, mime string) error {
 }
 
 // writeRawChunks writes data in RawChunkSize pieces, stopping at the
-// first short or failed write.
-func writeRawChunks(handle uintptr, printer string, data []byte) error {
+// first short or failed write. Every written chunk is a progress heartbeat:
+// a slow write over a busy spooler is fine as long as bytes keep moving.
+func writeRawChunks(ctx context.Context, handle uintptr, printer string, data []byte) error {
 	for offset := 0; offset < len(data); {
 		end := offset + RawChunkSize
 		if end > len(data) {
@@ -91,6 +95,7 @@ func writeRawChunks(handle uintptr, printer string, data []byte) error {
 			return SpoolError(printer,
 				fmt.Sprintf("WritePrinter short/failed write: %s", errno.Error()))
 		}
+		core.ReportProgress(ctx)
 		offset = end
 	}
 	return nil

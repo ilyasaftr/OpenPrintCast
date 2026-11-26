@@ -134,7 +134,7 @@ func TestPageOverridesPreserveOptions(t *testing.T) {
 		t.Fatalf("status = %s, options = %+v", goipp.Status(rsp.Code), options)
 	}
 	job, _ := shared.getIPPJob("hp", uint32(id))
-	if len(attrValues(t, ippJobAttrs(job, testPrinter(), "pc", 631), "overrides")) != 1 {
+	if len(attrValues(t, ippJobAttrs(job, testPrinter(), "pc", 631, nil), "overrides")) != 1 {
 		t.Fatal("job attributes did not retain page overrides")
 	}
 }

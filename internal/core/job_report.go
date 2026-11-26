@@ -36,3 +36,36 @@ func ReportPageCount(ctx context.Context, pages int) {
 		f(pages)
 	}
 }
+
+// ProgressReporter receives a heartbeat when the job makes visible
+// progress: a page drawn, a document handed to the queue. The watchdog
+// uses the absence of heartbeats to tell a wedged print pipeline apart
+// from a slow one.
+type ProgressReporter func()
+
+// progressKey is the context key under which a ProgressReporter is carried.
+type progressKey struct{}
+
+// WithProgressReporter returns a context that makes ReportProgress call f.
+// It travels in the context for the same reason as the PageCounter: the
+// heartbeat is request-scoped and has to cross the spooler interfaces
+// without widening them. A nil f returns ctx unchanged.
+func WithProgressReporter(ctx context.Context, f ProgressReporter) context.Context {
+	if f == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, progressKey{}, f)
+}
+
+// ReportProgress tells the ProgressReporter carried by ctx, if any, that
+// the job advanced. It does nothing when ctx is nil or carries no
+// reporter. Reporting is cheap and idempotent: callers report every page
+// and every handoff rather than once per job.
+func ReportProgress(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	if f, ok := ctx.Value(progressKey{}).(ProgressReporter); ok {
+		f()
+	}
+}

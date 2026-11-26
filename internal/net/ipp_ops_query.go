@@ -52,7 +52,7 @@ func handleGetJobAttributes(c *ippRequest) *goipp.Message {
 		return c.respond(goipp.StatusErrorNotFound)
 	}
 	rsp := c.respond(goipp.StatusOk)
-	rsp.Job = requestedAttributes(c.req, ippJobAttrs(job, c.printer, c.host, c.port), nil)
+	rsp.Job = requestedAttributes(c.req, ippJobAttrs(job, c.printer, c.host, c.port, c.shared), nil)
 	return rsp
 }
 
@@ -100,7 +100,7 @@ func handleGetJobs(c *ippRequest) *goipp.Message {
 		if !filter.accepts(job, selected) {
 			continue
 		}
-		attrs := ippJobAttrs(job, c.printer, c.host, c.port)
+		attrs := ippJobAttrs(job, c.printer, c.host, c.port, c.shared)
 		defaults := attrs[:2]
 		attrs = requestedAttributes(c.req, attrs, defaults)
 		rsp.Groups = append(rsp.Groups, goipp.Group{Tag: goipp.TagJobGroup, Attrs: attrs})

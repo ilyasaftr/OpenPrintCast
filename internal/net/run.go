@@ -74,6 +74,7 @@ func RunForever(ctx context.Context, shared *SharedState, port int) error {
 	}
 	stopResync := startResync(ctx, shared, adv)
 	defer stopResync()
+	startWatchdog(ctx, shared)
 	srv := newPlainServer(shared, adv, port)
 	go reportServe(done, func() error { return listenAndServe(shared, srv) })
 	return awaitShutdown(ctx, done, srv)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"runtime"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -135,6 +136,7 @@ func (j *gdiPrintJob) startDocument() error {
 		return gdiError("StartDocW", errno)
 	}
 	j.started = true
+	core.ReportProgress(j.ctx)
 	return nil
 }
 
@@ -154,7 +156,11 @@ func (j *gdiPrintJob) printPage(img image.Image, page, total int) error {
 	img = orientForPrint(img, g.width, g.height, g.dpiX, g.dpiY, j.settings.options.Orientation,
 		j.settings.AutoRotateToFit, j.prerotated)
 	mono := j.settings.options.PageMonochrome(page, total, j.defaultMonochrome)
-	return drawPage(j.ctx, j.dc, img, g.width, g.height, g.dpiX, g.dpiY, 0, 0, mono)
+	if err := drawPage(j.ctx, j.dc, img, g.width, g.height, g.dpiX, g.dpiY, 0, 0, mono); err != nil {
+		return err
+	}
+	core.ReportProgress(j.ctx)
+	return nil
 }
 
 func (j *gdiPrintJob) endDocument() error {
@@ -163,16 +169,19 @@ func (j *gdiPrintJob) endDocument() error {
 		return gdiError("EndDoc", errno)
 	}
 	j.completed = true
+	core.ReportProgress(j.ctx)
 	return nil
 }
 
 // spoolRendered renders pages to a printer DC using the driver's default paper
 // and orientation. Each DIB contains just one band, avoiding huge GDI records.
 func spoolRendered(printer string, data []byte, mime string, settings RenderSettings) error {
+	started := time.Now()
 	ctx := settings.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	componentLogger(componentSpool).Info("print job rendering started", "printer", printer, "mime", mime, "bytes", len(data))
 	release, err := acquireRenderSlot(ctx)
 	if err != nil {
 		return err
@@ -199,7 +208,14 @@ func spoolRendered(printer string, data []byte, mime string, settings RenderSett
 		return err
 	}
 	defer job.abortIfUnfinished()
-	return job.run(data)
+	if err := job.run(data); err != nil {
+		return err
+	}
+	// EndDoc has returned: Windows accepted every page into the queue, so
+	// the job now lives or dies downstream of the bridge.
+	componentLogger(componentSpool).Info("print job handed to the windows print queue",
+		"printer", printer, "elapsed", time.Since(started).Round(time.Millisecond))
+	return nil
 }
 
 // run renders data into the open DC and closes the document.

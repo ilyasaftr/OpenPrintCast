@@ -67,8 +67,11 @@ func printJobResponse(req *goipp.Message, doc []byte, printer core.PrinterInfo, 
 	if !completed {
 		return run.cancelled()
 	}
+	componentLogger(componentSpool).Info("print job completed",
+		"printer", printer.ID, "user", run.user, "pages", run.pages.Load(),
+		"duration", time.Since(started).Round(time.Millisecond))
 	rsp := run.finish(core.JobCompleted, goipp.StatusOk)
-	rsp.Job = ippJobAttrs(job, printer, host, port)
+	rsp.Job = ippJobAttrs(job, printer, host, port, shared)
 	return rsp
 }
 
