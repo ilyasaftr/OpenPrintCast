@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	"github.com/ilyasaftr/OpenPrintCast/internal/core"
@@ -123,8 +124,11 @@ func (f *fakeD4Printer) Read(p []byte) (int, error) {
 	return f.readBuf.Read(p)
 }
 
-// errReader is a device that never answers, for the failure paths.
+// errReader is a device whose cable is dead: every read and write fails.
 type errReader struct{}
+
+func (errReader) Read([]byte) (int, error)  { return 0, errors.New("read: device gone") }
+func (errReader) Write([]byte) (int, error) { return 0, errors.New("write: device gone") }
 
 // st2Element appends one TLV element.
 func st2Element(ftype byte, item ...byte) []byte {
@@ -229,6 +233,15 @@ func TestEpsonProbeNegotiatesTheRevision(t *testing.T) {
 	}
 	if len(facts.Supplies) == 0 {
 		t.Error("no supplies read after the negotiation")
+	}
+}
+
+// TestEpsonProbeFailsOnADeadDevice proves a broken cable surfaces as an
+// error instead of a hang or a panic, so the probe chain can skip it.
+func TestEpsonProbeFailsOnADeadDevice(t *testing.T) {
+	prober := epsonProber{}
+	if _, err := prober.probe(context.Background(), errReader{}, "MFG:EPSON;MDL:L3210 Series;"); err == nil {
+		t.Fatal("a device that errors on every read and write must fail the probe")
 	}
 }
 
