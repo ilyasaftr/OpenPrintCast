@@ -68,6 +68,7 @@ func TestReportProgressCallsReporter(t *testing.T) {
 
 func TestReportProgressWithoutReporterIsSilent(t *testing.T) {
 	ReportProgress(context.Background())
-	ReportProgress(nil)
+	var nilContext context.Context
+	ReportProgress(nilContext)
 	ReportProgress(WithProgressReporter(context.Background(), nil))
 }
