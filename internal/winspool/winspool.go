@@ -203,6 +203,19 @@ func (b SystemBackend) SupplyLevels(printer string) ([]core.Supply, string) {
 	return append([]core.Supply(nil), reading.Supplies...), reading.Host
 }
 
+// DeviceFacts returns what a read straight from the device learned beyond
+// the supplies: the serial number, the firmware version and the device's
+// own error states as printer-state-reasons keywords. They come from the
+// same cache the supplies do, so they are as fresh — and network printers,
+// which are read over SNMP, carry none.
+func (b SystemBackend) DeviceFacts(printer string) (serial, firmware string, stateReasons []string) {
+	if b.supplies == nil {
+		return "", "", nil
+	}
+	reading := b.supplies.Get(printer)
+	return reading.Serial, reading.Firmware, reading.StateReasons
+}
+
 // ColorSupported reports the driver's color capability, if available.
 func (b SystemBackend) ColorSupported(printer string) (bool, bool) {
 	return platformColorSupported(printer)

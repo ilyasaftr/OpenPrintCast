@@ -28,6 +28,9 @@ type printerAttrsContext struct {
 	duplex         bool
 	supplies       []core.Supply // publishable supplies; none without data
 	supplyHost     string
+	serial         string
+	firmware       string
+	deviceReasons  []string
 	qualities      []int
 	defaultQuality int
 }
@@ -42,6 +45,7 @@ var printerAttrGroups = []printerAttrGroup{
 	addSupplies,
 	addIPPFeatures,
 	addPrinterIdentity,
+	addDeviceFacts,
 	addDeviceID,
 	addPrintSpeed,
 	addProtocolSupport,
@@ -90,6 +94,7 @@ func newPrinterAttrsContext(printer core.PrinterInfo, shared *SharedState, host 
 		media:     mediaAttrs(shared, printer),
 	}
 	c.supplies, c.supplyHost = publishedSupplies(shared, printer)
+	c.serial, c.firmware, c.deviceReasons = deviceFacts(shared, printer)
 	c.state, c.reasons = c.stateAndReasons()
 	c.advertisedName = c.dnsSDName()
 	c.qualities, c.defaultQuality, _ = printQualities(shared, printer)
@@ -117,6 +122,7 @@ func (c *printerAttrsContext) stateAndReasons() (int, []string) {
 		reasons = []string{"other"}
 	}
 	reasons = mergeSupplyReasons(reasons, core.SupplyStateReasons(c.supplies))
+	reasons = mergeSupplyReasons(reasons, c.deviceReasons)
 	if c.paused {
 		reasons = withPausedReason(reasons)
 	}

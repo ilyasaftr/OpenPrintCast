@@ -31,10 +31,14 @@ const (
 
 // supplyReading is what one read of a printer found: its supplies, and the
 // printer's own address (for its web page), which is known even when the
-// printer reports no supplies.
+// printer reports no supplies. A read straight from the device also knows
+// the serial, the firmware version and the device's own error states.
 type supplyReading struct {
-	Supplies []core.Supply
-	Host     string
+	Supplies     []core.Supply
+	Host         string
+	Serial       string
+	Firmware     string
+	StateReasons []string
 }
 
 // supplyFetcher reads one printer. It returns errNoSupplySource for a
@@ -198,18 +202,18 @@ func logSupplyFailure(printer string, entry *supplyEntry, err error) {
 	log.Debug("could not read supply levels", "printer", printer, "err", err, "failures", entry.failures)
 }
 
-// fetchSupplies is the production supplyFetcher: it reads the printer's own
-// address and SNMP settings from its Windows port, then walks the Printer
-// MIB there. Nothing a print client sends takes part in choosing the
-// address.
+// fetchSupplies is the production supplyFetcher. A printer on a network
+// port is read over SNMP through the port's own settings; a printer on a
+// USB port is probed straight from the device. Nothing a print client
+// sends takes part in choosing either path.
 func fetchSupplies(ctx context.Context, printer string) (supplyReading, error) {
 	target, err := platformSupplyTarget(printer)
-	if err != nil {
-		return supplyReading{}, err
+	if err == nil {
+		supplies, err := readSupplies(ctx, newGosnmpWalker(target), target.DeviceIndex)
+		if err != nil {
+			return supplyReading{}, fmt.Errorf("%s: %w", target.Host, err)
+		}
+		return supplyReading{Supplies: supplies, Host: target.Host}, nil
 	}
-	supplies, err := readSupplies(ctx, newGosnmpWalker(target), target.DeviceIndex)
-	if err != nil {
-		return supplyReading{}, fmt.Errorf("%s: %w", target.Host, err)
-	}
-	return supplyReading{Supplies: supplies, Host: target.Host}, nil
+	return probeUSB(ctx, printer)
 }
