@@ -14,6 +14,8 @@ func (a *bridgeApp) openPrinterSheet(p *core.PrinterInfo) {
 	a.editingPrinter = p.WindowsName
 	a.draftName, a.draftLocation = p.AirPrintName, p.Location
 	a.draftVirtual = p.IsVirtual
+	a.sheetTab = 0
+	a.sheetFocusFrames = 2
 	a.printerDialogOpen = true
 }
 
@@ -61,10 +63,23 @@ func (a *bridgeApp) viewPrinterDialog(c *ui.Context) {
 	commit := false
 	ui.Modal(c, &a.printerDialogOpen, func() {
 		a.sheetHeader(c, p)
-		if a.sheetFields(c, p, nameErr) {
-			commit = true
-		}
-		a.sheetCompatibility(c, p)
+		ui.Segmented(c.Key("sheet-tab"), &a.sheetTab, "General", "Supply Levels").Margin(sectionGap, 0, controlGap, 0)
+		// The tab content scrolls when the window is too small for it, so
+		// the buttons underneath stay reachable on the smallest windows.
+		ui.Scroll(c).Grow(1).Shrink(1).MinHeight(0).Children(func() {
+			if a.sheetTab == 0 {
+				ui.Column(c.Key("sheet-general")).Gap(sectionGap).Children(func() {
+					if a.sheetFields(c, p, nameErr) {
+						commit = true
+					}
+					a.sheetCompatibility(c, p)
+				})
+			} else {
+				ui.Column(c.Key("sheet-supplies")).Gap(sectionGap).Children(func() {
+					a.sheetSupplies(c, p)
+				})
+			}
+		})
 		if a.sheetButtons(c, nameErr) {
 			commit = true
 		}
@@ -92,6 +107,16 @@ func (a *bridgeApp) sheetFields(c *ui.Context, p *core.PrinterInfo, nameErr stri
 	ui.Column(c).Gap(sectionGap).Children(func() {
 		ui.Field(c, "Name on devices", func() {
 			in := ui.TextInput(c, &a.draftName).Placeholder(p.WindowsName)
+			// Focus is given one frame after opening, not on the frame the
+			// sheet is born: focus that moves on the born frame is what the
+			// overlay records as the opener, and closing would try to give
+			// it back to the field itself.
+			if a.sheetFocusFrames > 0 {
+				a.sheetFocusFrames--
+				if a.sheetFocusFrames == 0 {
+					in.Focus()
+				}
+			}
 			if in.Submitted() && nameErr == "" {
 				submitted = true
 			}

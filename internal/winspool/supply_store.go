@@ -54,6 +54,7 @@ type supplyFetcher func(ctx context.Context, printer string) (supplyReading, err
 type supplyEntry struct {
 	reading    supplyReading
 	hasReading bool
+	hadReading bool      // a read has succeeded at least once
 	fetchedAt  time.Time // of the last successful read
 	retryAt    time.Time // no refresh before this after a failure
 	failures   int       // consecutive failed reads
@@ -179,9 +180,12 @@ func (s *supplyStore) finish(printer string, generation uint64, reading supplyRe
 	}
 	if errors.Is(err, errNoSupplySource) {
 		reading = supplyReading{}
-		componentLogger(componentSupplies).Debug("printer has no SNMP source for supply levels", "printer", printer)
+		componentLogger(componentSupplies).Debug("printer cannot be read for supply levels", "printer", printer)
+	} else if !entry.hadReading {
+		componentLogger(componentSupplies).Info("supply levels read", "printer", printer, "supplies", len(reading.Supplies))
 	}
 	entry.reading, entry.hasReading = reading, true
+	entry.hadReading = true
 	entry.fetchedAt, entry.retryAt, entry.failures = s.now(), time.Time{}, 0
 }
 

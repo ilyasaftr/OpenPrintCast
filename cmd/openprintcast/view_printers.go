@@ -105,6 +105,24 @@ func (a *bridgeApp) printerGroup(c *ui.Context) {
 	listGroup(c, rows...)
 }
 
+// printerRowNote combines the row's optional extra lines — the ink strip
+// and the compatibility warning — into the one note slot the row has.
+func (a *bridgeApp) printerRowNote(c *ui.Context, p *core.PrinterInfo) func() {
+	strip := a.supplyStripNote(c, p)
+	compat := a.compatibilityNote(c, p)
+	switch {
+	case strip == nil:
+		return compat
+	case compat == nil:
+		return strip
+	default:
+		return func() {
+			strip()
+			compat()
+		}
+	}
+}
+
 // filterPrinters returns the printers matching the search query and how
 // many printers are visible at all, ignoring the query.
 func (a *bridgeApp) filterPrinters() (shown []*core.PrinterInfo, visible int) {
@@ -140,7 +158,7 @@ func emptyPrintersMessage(visible int) string {
 func (a *bridgeApp) printerRow(c *ui.Context, p *core.PrinterInfo) {
 	detail, detailColor := a.printerDetail(c.Theme(), p)
 	ui.Column(c.Key(p.WindowsName)).Children(func() {
-		listRowWithNote(c, func() { printerTile(c, p) }, func() { printerTitle(c, p) }, detail, detailColor, a.compatibilityNote(c, p), func() {
+		listRowWithNote(c, func() { printerTile(c, p) }, func() { printerTitle(c, p) }, detail, detailColor, a.printerRowNote(c, p), func() {
 			a.printerStatusCell(c, p)
 			if infoButton(c, "Name and location for "+p.WindowsName, "Name and location") {
 				a.openPrinterSheet(p)

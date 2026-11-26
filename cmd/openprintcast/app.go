@@ -32,6 +32,8 @@ type bridgeApp struct {
 	draftName         string
 	draftLocation     string
 	draftVirtual      bool
+	sheetTab          int
+	sheetFocusFrames  int
 
 	reversePageOrder bool
 	autoRotateToFit  bool
