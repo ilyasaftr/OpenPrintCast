@@ -39,6 +39,11 @@ type supplyReading struct {
 	Serial       string
 	Firmware     string
 	StateReasons []string
+	// TotalPages is the sheets-fed count the device itself keeps, known
+	// only when the device reports one (PagesKnown) — zero is a real
+	// count, not a stand-in for unknown.
+	TotalPages int
+	PagesKnown bool
 }
 
 // supplyFetcher reads one printer. It returns errNoSupplySource for a

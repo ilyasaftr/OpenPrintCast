@@ -23,10 +23,13 @@ func probeUSB(ctx context.Context, printer string) (supplyReading, error) {
 	if err != nil {
 		return supplyReading{}, err
 	}
+	totalPages, pagesKnown := facts.TotalPages()
 	return supplyReading{
 		Supplies:     facts.Supplies,
 		Serial:       facts.Serial,
 		Firmware:     facts.Firmware,
 		StateReasons: facts.StateReasons,
+		TotalPages:   totalPages,
+		PagesKnown:   pagesKnown,
 	}, nil
 }

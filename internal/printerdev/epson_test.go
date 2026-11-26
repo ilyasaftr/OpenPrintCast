@@ -145,6 +145,13 @@ func sampleST2() []byte {
 	frame = append(frame, st2Element(0x0d, 35)...)   // waste ink 35% filled
 	frame = append(frame, st2Element(0x02, 0x00)...) // no error
 	frame = append(frame, st2Element(0x1f, []byte("X1A2B3C4D5")...)...)
+	counts := make([]byte, 20)
+	binary.LittleEndian.PutUint32(counts[0:4], 0xFFFFFFFF) // plain counter unsupported
+	binary.LittleEndian.PutUint32(counts[4:8], 0xFFFFFFFF) // photo counter unsupported
+	binary.LittleEndian.PutUint32(counts[8:12], 11483)     // color sheets
+	binary.LittleEndian.PutUint32(counts[12:16], 2313)     // monochrome sheets
+	binary.LittleEndian.PutUint32(counts[16:20], 160)      // blank sheets
+	frame = append(frame, st2Element(0x36, counts...)...)
 	return frame
 }
 
@@ -183,6 +190,12 @@ func TestEpsonProbeReadsSuppliesAndFacts(t *testing.T) {
 	}
 	if len(facts.StateReasons) != 0 {
 		t.Errorf("no error in the frame, want no reasons, got %v", facts.StateReasons)
+	}
+	if facts.PagesColor != 11483 || facts.PagesMonochrome != 2313 || facts.PagesBlank != 160 {
+		t.Errorf("page counters: got %d/%d/%d", facts.PagesColor, facts.PagesMonochrome, facts.PagesBlank)
+	}
+	if total, ok := facts.TotalPages(); !ok || total != 11483+2313+160 {
+		t.Errorf("total pages: got %d, %v", total, ok)
 	}
 }
 
@@ -267,5 +280,16 @@ func TestNormalizeAndField(t *testing.T) {
 	}
 	if deviceNameMatches(normalize("Microsoft Print to PDF"), id) {
 		t.Error("unrelated queue should not match")
+	}
+}
+
+func TestTotalPagesAbsentWhenUncounted(t *testing.T) {
+	uncounted := Facts{PagesColor: -1, PagesMonochrome: -1, PagesBlank: -1}
+	if total, ok := uncounted.TotalPages(); ok {
+		t.Errorf("a printer without counters claimed %d sheets", total)
+	}
+	brandNew := Facts{PagesColor: 0, PagesMonochrome: -1, PagesBlank: -1}
+	if total, ok := brandNew.TotalPages(); !ok || total != 0 {
+		t.Errorf("zero sheets is a real count: got %d, %v", total, ok)
 	}
 }

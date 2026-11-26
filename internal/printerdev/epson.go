@@ -37,7 +37,7 @@ func (epsonProber) matches(deviceID string) bool {
 // error bits, then the version information for the firmware string. Each
 // is best effort — a failure of one does not lose the other.
 func (epsonProber) probe(ctx context.Context, rw io.ReadWriter, deviceID string) (Facts, error) {
-	facts := Facts{Model: field1284(deviceID, "MDL")}
+	facts := Facts{Model: field1284(deviceID, "MDL"), PagesColor: -1, PagesMonochrome: -1, PagesBlank: -1}
 	if err := ctx.Err(); err != nil {
 		return Facts{}, err
 	}
@@ -220,6 +220,8 @@ func parseST2(frame []byte, facts *Facts) {
 			if serial := strings.TrimRight(string(item), "\x00"); serial != "" {
 				facts.Serial = serial
 			}
+		case 0x36:
+			parseST2PageCounts(item, facts)
 		}
 	}
 }
@@ -252,6 +254,20 @@ func parseST2Ink(item []byte, facts *Facts) {
 		}
 		facts.Supplies = append(facts.Supplies, supply)
 	}
+}
+
+// parseST2PageCounts decodes the paper-count element: five little-endian
+// signed counters — plain and photo paper counters first, then the color,
+// monochrome and blank sheet counts. The counters are signed because -1
+// is how a model says it does not count that kind of sheet; negative
+// values are kept so Facts can tell "zero sheets" from "no counter".
+func parseST2PageCounts(item []byte, facts *Facts) {
+	if len(item) != 20 {
+		return
+	}
+	facts.PagesColor = int(int32(binary.LittleEndian.Uint32(item[8:12])))
+	facts.PagesMonochrome = int(int32(binary.LittleEndian.Uint32(item[12:16])))
+	facts.PagesBlank = int(int32(binary.LittleEndian.Uint32(item[16:20])))
 }
 
 // parseST2Waste decodes the maintenance-tank element: one byte per waste

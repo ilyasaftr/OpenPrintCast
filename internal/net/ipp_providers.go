@@ -64,7 +64,7 @@ type supplyProvider interface {
 // straight from the device: serial number, firmware version and error
 // states. All are empty when the printer has not been read this way.
 type deviceFactsProvider interface {
-	DeviceFacts(printer string) (serial, firmware string, stateReasons []string)
+	DeviceFacts(printer string) (serial, firmware string, stateReasons []string, totalPages int, pagesKnown bool)
 }
 
 type optionSpooler interface {
@@ -92,13 +92,13 @@ func duplexSupported(shared *SharedState, printer core.PrinterInfo) bool {
 
 // deviceFacts returns what the print backend read straight from the
 // printer itself; without a provider every fact is empty.
-func deviceFacts(shared *SharedState, printer core.PrinterInfo) (serial, firmware string, stateReasons []string) {
+func deviceFacts(shared *SharedState, printer core.PrinterInfo) (serial, firmware string, stateReasons []string, totalPages int, pagesKnown bool) {
 	if shared == nil {
-		return "", "", nil
+		return "", "", nil, 0, false
 	}
 	provider, ok := capabilitySource(shared, printer).(deviceFactsProvider)
 	if !ok {
-		return "", "", nil
+		return "", "", nil, 0, false
 	}
 	return provider.DeviceFacts(printer.WindowsName)
 }

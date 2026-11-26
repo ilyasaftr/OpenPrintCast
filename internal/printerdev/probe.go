@@ -33,6 +33,28 @@ type Facts struct {
 	// bits imply (media-jam, cover-open...), without severity suffixes
 	// the state pipeline adds.
 	StateReasons []string
+	// Page counters the device reports; a negative field means the
+	// printer does not count that kind of sheet (the wire encoding of
+	// "unsupported" is -1, so zero is a real count).
+	PagesColor      int
+	PagesMonochrome int
+	PagesBlank      int
+}
+
+// TotalPages sums the per-kind page counters the printer reports into
+// the total sheets fed. The second result is false when the printer
+// counts nothing — a model without counters must not publish zero.
+func (f Facts) TotalPages() (int, bool) {
+	if f.PagesColor < 0 && f.PagesMonochrome < 0 && f.PagesBlank < 0 {
+		return 0, false
+	}
+	total := 0
+	for _, n := range []int{f.PagesColor, f.PagesMonochrome, f.PagesBlank} {
+		if n > 0 {
+			total += n
+		}
+	}
+	return total, true
 }
 
 // device is an open USB printer stream: writes go to the printer's bulk

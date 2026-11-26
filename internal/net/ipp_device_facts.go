@@ -20,4 +20,10 @@ func addDeviceFacts(c *printerAttrsContext, attrs *goipp.Attributes) {
 		attrs.Add(stringsAttr("printer-firmware-string-version", goipp.TagText, c.firmware))
 		attrs.Add(stringsAttr("printer-firmware-patches", goipp.TagText, ""))
 	}
+	// printer-media-sheets-completed is the device's own sheets-fed
+	// counter, published only when the device keeps one: a model without
+	// counters must not claim zero sheets.
+	if c.pagesKnown {
+		attrs.Add(intAttr("printer-media-sheets-completed", c.totalPages))
+	}
 }

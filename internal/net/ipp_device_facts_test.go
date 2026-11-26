@@ -24,10 +24,13 @@ func TestDeviceFactsAbsentWithoutData(t *testing.T) {
 	if attrText(rsp.Printer, "printer-firmware-string-version") != "" {
 		t.Error("firmware version appeared without device data")
 	}
+	if attrText(rsp.Printer, "printer-media-sheets-completed") != "" {
+		t.Error("page count appeared without device data")
+	}
 }
 
 func TestDeviceFactsPublished(t *testing.T) {
-	c := &printerAttrsContext{printer: testPrinter(), serial: "X1A2B3", firmware: "RF11I5"}
+	c := &printerAttrsContext{printer: testPrinter(), serial: "X1A2B3", firmware: "RF11I5", totalPages: 13956, pagesKnown: true}
 	var attrs goipp.Attributes
 	addDeviceFacts(c, &attrs)
 	if got := attrText(attrs, "printer-serial-number"); got != "X1A2B3" {
@@ -35,6 +38,9 @@ func TestDeviceFactsPublished(t *testing.T) {
 	}
 	if got := attrText(attrs, "printer-firmware-string-version"); got != "RF11I5" {
 		t.Errorf("firmware: got %q", got)
+	}
+	if got := attrText(attrs, "printer-media-sheets-completed"); got != "13956" {
+		t.Errorf("pages: got %q", got)
 	}
 	if got := attrText(attrs, "printer-firmware-name"); got != "Main" {
 		t.Errorf("firmware name: got %q", got)

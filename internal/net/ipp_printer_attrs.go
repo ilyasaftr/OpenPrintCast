@@ -30,6 +30,8 @@ type printerAttrsContext struct {
 	supplyHost     string
 	serial         string
 	firmware       string
+	totalPages     int
+	pagesKnown     bool
 	deviceReasons  []string
 	qualities      []int
 	defaultQuality int
@@ -94,7 +96,7 @@ func newPrinterAttrsContext(printer core.PrinterInfo, shared *SharedState, host 
 		media:     mediaAttrs(shared, printer),
 	}
 	c.supplies, c.supplyHost = publishedSupplies(shared, printer)
-	c.serial, c.firmware, c.deviceReasons = deviceFacts(shared, printer)
+	c.serial, c.firmware, c.deviceReasons, c.totalPages, c.pagesKnown = deviceFacts(shared, printer)
 	c.state, c.reasons = c.stateAndReasons()
 	c.advertisedName = c.dnsSDName()
 	c.qualities, c.defaultQuality, _ = printQualities(shared, printer)
