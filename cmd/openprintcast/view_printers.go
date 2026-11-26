@@ -76,7 +76,7 @@ func (a *bridgeApp) printersToolbar(c *ui.Context) {
 	}
 	ui.SearchField(c.Key("printer-search"), &a.printerQuery).Placeholder(searchPlaceholder).Label("Find a printer").
 		Tooltip(searchTip).KeyShortcuts(ui.Cmd, ui.KeyF).Bind(&a.printerSearch).Grow(1)
-	if ui.Checkbox(c, &a.cfg.ShowVirtualPrinters, "Show virtual printers").MinHeight(minControlHeight).
+	if ui.Checkbox(c.Key("show-virtual-printers"), &a.cfg.ShowVirtualPrinters, "Show virtual printers").MinHeight(minControlHeight).
 		Tooltip("Include software printers such as Microsoft Print to PDF").Changed() {
 		a.syncTray()
 	}
@@ -218,7 +218,7 @@ func (a *bridgeApp) folderSwitchRow(c *ui.Context) {
 	listRow(c, func() { iconTile(c, folderIcon, tileOrange) },
 		func() { ui.Text(c, "Print to Folder").Bold().SingleLine() }, detail, detailColor, func() {
 			disabled := !a.cfg.FolderEnabled && !filepath.IsAbs(a.cfg.FolderPath)
-			if ui.Switch(c, &a.cfg.FolderEnabled).Label("Share Print to Folder").Disabled(disabled).Changed() {
+			if ui.Switch(c.Key("share-print-to-folder"), &a.cfg.FolderEnabled).Label("Share Print to Folder").Disabled(disabled).Changed() {
 				a.folderSettingsChanged()
 			}
 		})

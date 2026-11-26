@@ -45,7 +45,7 @@ func (a *bridgeApp) sheetVirtual(c *ui.Context, p *core.PrinterInfo) {
 				a.useAutomaticDetectionButton(c, p)
 			}
 		})
-		ui.Switch(c, &a.draftVirtual).Label("Treat " + p.WindowsName + " as a virtual printer")
+		ui.Switch(c.Key("treat-as-virtual"), &a.draftVirtual).Label("Treat " + p.WindowsName + " as a virtual printer")
 	})
 }
 

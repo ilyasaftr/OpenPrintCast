@@ -149,9 +149,12 @@ func settingRow(c *ui.Context, title, detail string, control func()) {
 }
 
 // settingRowDetails is a settingRow whose explanation is drawn by details,
-// which may stack several lines.
+// which may stack several lines. The row is keyed by its title: element
+// identity is positional otherwise, and a switch or input here would
+// inherit the animation and interaction state of whatever sat in its place
+// before — another section's switch visibly flipping to its own value.
 func settingRowDetails(c *ui.Context, title string, details, control func()) {
-	ui.Row(c).Gap(rowGap).Padding(rowPaddingV, rowPaddingH).MinHeight(settingRowMinHeight).Children(func() {
+	ui.Row(c.Key(title)).Gap(rowGap).Padding(rowPaddingV, rowPaddingH).MinHeight(settingRowMinHeight).Children(func() {
 		ui.Column(c).Gap(captionTextGap).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, title)
 			details()

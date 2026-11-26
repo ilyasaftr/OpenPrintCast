@@ -86,11 +86,14 @@ func (a *bridgeApp) settingsSidebarItem(c *ui.Context, s settingsSection, marked
 	})
 }
 
-// settingsPane shows the groups of the chosen section in a column
-// at a readable width beside the sidebar, scrolling only when they do not fit.
+// settingsPane shows the groups of the chosen section in a column at a
+// readable width beside the sidebar, scrolling only when they do not fit.
+// The automatic margins center the column in the pane: on a wide or
+// maximized window the settings sit in the middle at their readable width
+// rather than clinging to the sidebar with blank space beside them.
 func (a *bridgeApp) settingsPane(c *ui.Context, sections []settingsSection) {
 	ui.Scroll(c).Grow(1).MinWidth(0).Children(func() {
-		ui.Column(c).MaxWidth(settingsWidth).AlignSelf(ui.Stretch).Gap(controlGap).Children(func() {
+		ui.Column(c.Key("settings-section-"+a.settingsSection)).MaxWidth(settingsWidth).WidthPercent(100).AlignSelf(ui.Stretch).Margin(0, ui.Auto).Gap(controlGap).Children(func() {
 			for _, s := range sections {
 				if s.id != a.settingsSection {
 					continue
