@@ -5,98 +5,68 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 // IEEE 1284.4 ("D4") is the packet layer Epson printers speak once they
-// leave print-data mode: channels to named services, with credit flow
-// control in both directions. This implementation follows the wire
-// behavior documented by three independent reverse-engineered
-// implementations (epson-usb, reink, abrasive/epson-reversing), which
-// agree byte for byte.
+// leave print-data mode. This implementation is a port of the wire behavior
+// of the epson-usb library, the implementation verified byte for byte
+// against real hardware of the L3250 generation the L3210 belongs to: the
+// same handshake order, the same packet bytes, the same credit dance. Where
+// it differs from the older references (abrasive/epson-reversing), the
+// hardware-verified behavior wins.
 
 // d4EnterSequence switches the printer from interpreting the stream as
 // print data into packet mode. The three NULs guard against a partial
 // command left in the parser; the EJL line does the switch.
 var d4EnterSequence = []byte("\x00\x00\x00\x1b\x01@EJL 1284.4\n@EJL\n@EJL\n")
 
-// Packet control bits (IEEE 1284.4): end-of-message marks the last packet
-// of one logical transfer; out-of-band is unused but parsed through.
-const (
-	d4ControlOOB = 1
-	d4ControlEOM = 2
-)
+// epsonCtrlSocket is the well-known socket of the EPSON-CTRL service. The
+// hardware-verified implementation uses it directly rather than resolving
+// it with GetSocketID.
+const epsonCtrlSocket = 0x02
 
-// Socket-zero commands, the channel-0 control conversation every session
-// starts with. Responses carry the command byte with the high bit set, a
-// zero status byte, then the result.
+// Revisions of the D4 protocol. The host offers 0x20 first; the printer of
+// the L3250 family answers with its own, 0x10, and the host retries with
+// it. Later structures depend on the negotiated revision.
 const (
-	d4cmdInit         = 0
-	d4cmdOpenChannel  = 1
-	d4cmdCloseChannel = 2
-	d4cmdCredit       = 3
-	d4cmdCreditReq    = 4
-	d4cmdExit         = 8
-	d4cmdGetSocketID  = 9
+	d4InitialRevision = 0x20
+	d4Revision10      = 0x10
 )
 
 // d4HeaderLen is the packet header: primary socket, secondary socket,
 // length including the header, credit, control.
 const d4HeaderLen = 6
 
-// d4MaxPayload bounds one packet's payload, far above the small frames of
-// a control conversation; anything larger is a framing error.
-const d4MaxPayload = 65536 - d4HeaderLen
+// The pauses and retry counts of the verified implementation. The printer
+// needs a moment after the mode switch before it speaks packets.
+const (
+	d4EnterPause  = 200 * time.Millisecond
+	d4DrainPause  = 300 * time.Millisecond
+	d4ReplySweeps = 14
+)
 
-// d4Session is one packet-mode conversation over the stream. Packets of
-// the control conversation and of open channels interleave on the wire,
-// so reads demultiplex them into per-socket queues.
+// d4Session is one packet-mode conversation over the stream. Bytes are read
+// ahead into pending, so packets are always parsed aligned; packets of one
+// socket arriving while another is wanted are queued per socket.
 type d4Session struct {
 	rw      io.ReadWriter
-	pending []byte // bytes read past the last packet boundary
-	queues  map[uint8][]d4Packet
+	pending []byte
+	queues  map[uint8][][]byte
+	rev     byte
 }
 
-// d4Packet is one packet: the sockets it travels between, its payload,
-// the credit it carries and its control bits.
-type d4Packet struct {
-	psid, ssid uint8
-	payload    []byte
-	credit     uint8
-	eom        bool
+// writePacket emits one packet.
+func (s *d4Session) writePacket(psid, ssid uint8, credit uint8, payload []byte) error {
+	header := []byte{psid, ssid, 0, 0, credit, 0}
+	binary.BigEndian.PutUint16(header[2:4], uint16(len(payload)+d4HeaderLen))
+	if _, err := s.rw.Write(append(header, payload...)); err != nil {
+		return fmt.Errorf("write packet: %w", err)
+	}
+	return nil
 }
 
-// startD4 enters packet mode and runs the Init handshake. The printer
-// answers the mode switch with a fixed prelude (eight bytes) which is
-// discarded.
-func startD4(rw io.ReadWriter) (*d4Session, error) {
-	if _, err := rw.Write(d4EnterSequence); err != nil {
-		return nil, fmt.Errorf("enter 1284.4 mode: %w", err)
-	}
-	s := &d4Session{rw: rw, queues: make(map[uint8][]d4Packet)}
-	if _, err := io.ReadFull(s, make([]byte, 8)); err != nil {
-		return nil, fmt.Errorf("read 1284.4 prelude: %w", err)
-	}
-	resp, err := s.command(d4cmdInit, []byte{0x10})
-	if err != nil {
-		return nil, fmt.Errorf("init: %w", err)
-	}
-	if len(resp) != 1 || resp[0] != 0x10 {
-		return nil, fmt.Errorf("init: unexpected answer %x", resp)
-	}
-	return s, nil
-}
-
-// Read satisfies io.Reader for the session's buffered reads.
-func (s *d4Session) Read(p []byte) (int, error) {
-	if len(s.pending) > 0 {
-		n := copy(p, s.pending)
-		s.pending = s.pending[n:]
-		return n, nil
-	}
-	return s.rw.Read(p)
-}
-
-// fill reads exactly len bytes into the pending buffer.
+// fill reads at least n bytes into the pending buffer.
 func (s *d4Session) fill(n int) error {
 	for len(s.pending) < n {
 		buf := make([]byte, n-len(s.pending)+128)
@@ -114,221 +84,215 @@ func (s *d4Session) fill(n int) error {
 	return nil
 }
 
-// take consumes n bytes of the pending buffer.
-func (s *d4Session) take(n int) []byte {
-	out := append([]byte(nil), s.pending[:n]...)
-	s.pending = s.pending[n:]
-	return out
-}
-
-// writePacket emits one packet.
-func (s *d4Session) writePacket(psid, ssid uint8, credit uint8, eom bool, payload []byte) error {
-	if len(payload) > d4MaxPayload {
-		return errors.New("d4: payload too large")
-	}
-	control := uint8(0)
-	if eom {
-		control |= d4ControlEOM
-	}
-	header := []byte{psid, ssid, 0, 0, credit, control}
-	binary.BigEndian.PutUint16(header[2:4], uint16(len(payload)+d4HeaderLen))
-	if _, err := s.rw.Write(append(header, payload...)); err != nil {
-		return fmt.Errorf("write packet: %w", err)
-	}
-	return nil
+// packet is one parsed packet.
+type packet struct {
+	psid    uint8
+	payload []byte
 }
 
 // readPacket reads the next packet for socket, queueing packets of other
-// sockets until they are wanted.
-func (s *d4Session) readPacket(socket uint8) (d4Packet, error) {
+// sockets until they are wanted. A packet whose declared length is smaller
+// than the header is malformed and consumed, resynchronizing the stream.
+func (s *d4Session) readPacket(socket uint8) (packet, error) {
 	for {
 		if queue := s.queues[socket]; len(queue) > 0 {
-			packet := queue[0]
+			payload := queue[0]
 			s.queues[socket] = queue[1:]
-			return packet, nil
+			return packet{psid: socket, payload: payload}, nil
 		}
-		packet, err := s.readPacketRaw()
+		p, err := s.readPacketRaw()
 		if err != nil {
-			return d4Packet{}, err
+			return packet{}, err
 		}
-		s.queues[packet.psid] = append(s.queues[packet.psid], packet)
+		if p.psid == socket {
+			return p, nil
+		}
+		s.queues[p.psid] = append(s.queues[p.psid], p.payload)
 	}
 }
 
 // readPacketRaw reads the next packet off the wire, whichever socket it
 // belongs to.
-func (s *d4Session) readPacketRaw() (d4Packet, error) {
+func (s *d4Session) readPacketRaw() (packet, error) {
 	if err := s.fill(d4HeaderLen); err != nil {
-		return d4Packet{}, fmt.Errorf("read packet header: %w", err)
+		return packet{}, fmt.Errorf("read packet header: %w", err)
 	}
-	header := s.take(d4HeaderLen)
+	header := append([]byte(nil), s.pending[:d4HeaderLen]...)
+	s.pending = s.pending[d4HeaderLen:]
 	length := int(binary.BigEndian.Uint16(header[2:4]))
-	if length < d4HeaderLen || length > 65535 {
-		return d4Packet{}, fmt.Errorf("d4: bad packet length %d", length)
+	if length < d4HeaderLen {
+		return packet{psid: header[0]}, nil
 	}
 	if err := s.fill(length - d4HeaderLen); err != nil {
-		return d4Packet{}, fmt.Errorf("read packet payload: %w", err)
+		return packet{}, fmt.Errorf("read packet payload: %w", err)
 	}
-	return d4Packet{
-		psid:    header[0],
-		ssid:    header[1],
-		payload: s.take(length - d4HeaderLen),
-		credit:  header[4],
-		eom:     header[5]&d4ControlEOM != 0,
-	}, nil
+	payload := append([]byte(nil), s.pending[:length-d4HeaderLen]...)
+	s.pending = s.pending[length-d4HeaderLen:]
+	return packet{psid: header[0], payload: payload}, nil
 }
 
-// command runs one socket-zero control command and returns the result
-// bytes of its response.
-func (s *d4Session) command(cmd byte, payload []byte) ([]byte, error) {
-	if err := s.writePacket(0, 0, 0, true, append([]byte{cmd}, payload...)); err != nil {
+// drain throws away whatever the printer sent before the session started:
+// periodic status bytes left in the pipe by other software would
+// desynchronize the first packet read. A device that can shorten its read
+// timeout is asked to; the drain costs one such timeout when the pipe is
+// empty, which is the common case.
+func drain(rw io.ReadWriter) {
+	shorter, ok := rw.(interface{ setReadTimeout(time.Duration) })
+	if !ok {
+		return
+	}
+	shorter.setReadTimeout(d4DrainPause)
+	defer shorter.setReadTimeout(ioTimeout)
+	buf := make([]byte, 1024)
+	for {
+		if _, err := rw.Read(buf); err != nil {
+			return
+		}
+	}
+}
+
+// control runs one socket-zero command: the command byte and its payload,
+// with the credit byte the verified implementation grants on control
+// packets. The reply payload is returned without the command echo and
+// status bytes.
+func (s *d4Session) control(payload []byte) ([]byte, error) {
+	if err := s.writePacket(0, 0, 1, payload); err != nil {
 		return nil, err
 	}
 	resp, err := s.readPacket(0)
 	if err != nil {
 		return nil, err
 	}
-	if len(resp.payload) < 2 {
-		return nil, errors.New("d4: short command response")
-	}
-	if resp.payload[0] != cmd|0x80 {
-		return nil, fmt.Errorf("d4: command %#x answered by %#x", cmd, resp.payload[0])
-	}
-	if resp.payload[1] != 0 {
-		return nil, fmt.Errorf("d4: command %#x failed with status %#x", cmd, resp.payload[1])
-	}
-	return resp.payload[2:], nil
+	return resp.payload, nil
 }
 
-// socketID resolves a service name ("EPSON-CTRL") to its socket number.
-func (s *d4Session) socketID(name string) (uint8, error) {
-	resp, err := s.command(d4cmdGetSocketID, []byte(name))
-	if err != nil {
-		return 0, fmt.Errorf("get socket id of %s: %w", name, err)
+// startD4 enters packet mode and runs the handshake, exactly as the
+// hardware-verified implementation does: drain, the mode switch, a pause,
+// one packet-aligned reply (tolerated if absent), then the Init revision
+// negotiation offering 0x20 first and retrying with the printer's own.
+func startD4(rw io.ReadWriter) (*d4Session, error) {
+	drain(rw)
+	if _, err := rw.Write(d4EnterSequence); err != nil {
+		return nil, fmt.Errorf("enter 1284.4 mode: %w", err)
 	}
-	if len(resp) < 1 || resp[0] == 0 {
-		return 0, fmt.Errorf("service %s not offered", name)
+	time.Sleep(d4EnterPause)
+	s := &d4Session{rw: rw, queues: make(map[uint8][][]byte)}
+	// The enter reply is one packet, whatever its length; it is read for
+	// alignment, not for its content, and a printer that sends none is not
+	// a failure here — the Init below is the real probe.
+	_ = s.readEnterReply()
+	rev := byte(d4InitialRevision)
+	ok := false
+	for range 3 {
+		resp, err := s.control([]byte{0x00, rev})
+		if err != nil {
+			return nil, fmt.Errorf("init: %w", err)
+		}
+		if len(resp) >= 3 && resp[0] == 0x80 {
+			if resp[1] == 0x00 {
+				ok = true
+				break
+			}
+			if resp[2] != 0 && resp[2] != rev {
+				rev = resp[2]
+				continue
+			}
+		}
+		break
 	}
-	return resp[0], nil
+	if !ok {
+		return nil, fmt.Errorf("init: the printer did not answer D4 (tried revision %#x)", rev)
+	}
+	s.rev = rev
+	if err := s.openChannel(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-// openChannel opens the channel to socket and returns its MTU and the
-// initial credit.
-func (s *d4Session) openChannel(socket uint8) (mtu, credit int, err error) {
-	req := make([]byte, 10)
-	req[0], req[1] = socket, socket
-	for i := 2; i < 10; i += 2 {
-		binary.BigEndian.PutUint16(req[i:i+2], 0xffff)
-	}
-	resp, err := s.command(d4cmdOpenChannel, req)
-	if err != nil {
-		return 0, 0, fmt.Errorf("open channel %d: %w", socket, err)
-	}
-	if len(resp) < 8 {
-		return 0, 0, errors.New("d4: short open-channel response")
-	}
-	mtu = int(binary.BigEndian.Uint16(resp[2:4]))
-	credit = int(binary.BigEndian.Uint16(resp[6:8]))
-	if mtu < d4HeaderLen+1 {
-		return 0, 0, fmt.Errorf("d4: implausible channel mtu %d", mtu)
-	}
-	return mtu, credit, nil
-}
-
-// closeChannel closes the channel; the session then exits packet mode.
-func (s *d4Session) closeChannel(socket uint8) {
-	// Best effort: the printer is about to leave packet mode anyway, and
-	// the caller is often already on an error path.
-	_ = s.writePacket(0, 0, 0, true, []byte{d4cmdCloseChannel, socket, socket})
-	_, _ = s.readPacket(0)
-}
-
-// exit leaves packet mode.
-func (s *d4Session) exit() {
-	_, _ = s.command(d4cmdExit, nil)
-}
-
-// credit grants the printer n more packets' worth of send credit on the
-// channel.
-func (s *d4Session) credit(socket uint8, n int) error {
-	req := []byte{socket, socket, 0, 0}
-	binary.BigEndian.PutUint16(req[2:4], uint16(n))
-	_, err := s.command(d4cmdCredit, req)
+// readEnterReply consumes one packet without requiring it.
+func (s *d4Session) readEnterReply() error {
+	_, err := s.readPacketRaw()
 	return err
 }
 
-// channel is one open service channel with its flow-control state.
-type d4Channel struct {
-	session *d4Session
-	socket  uint8
-	mtu     int
-	credit  int // send credit: packets we may still write
-}
-
-// open resolves the service and opens its channel.
-func (s *d4Session) open(service string) (*d4Channel, error) {
-	socket, err := s.socketID(service)
-	if err != nil {
-		return nil, err
+// openChannel opens the EPSON-CTRL channel with the byte layout of the
+// negotiated revision: revision 0x10 carries one field more. The reply is
+// validated by its echo and status bytes alone; the mtu and credit fields
+// are the printer's business, since every request takes fresh credit.
+func (s *d4Session) openChannel() error {
+	var payload []byte
+	if s.rev == d4Revision10 {
+		payload = []byte{0x01, 0x02, epsonCtrlSocket, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}
+	} else {
+		payload = []byte{0x01, 0x02, epsonCtrlSocket, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}
 	}
-	mtu, credit, err := s.openChannel(socket)
+	resp, err := s.control(payload)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("open channel: %w", err)
 	}
-	return &d4Channel{session: s, socket: socket, mtu: mtu, credit: credit}, nil
-}
-
-// close ends the channel and packet mode.
-func (c *d4Channel) close() {
-	c.session.closeChannel(c.socket)
-	c.session.exit()
-}
-
-// write sends data on the channel, chunked to the MTU with end-of-message
-// on the last packet. Writes larger than the initial credit allow are
-// refused rather than deadlocked: the control conversation of these
-// printers never exceeds it.
-func (c *d4Channel) write(data []byte) error {
-	for len(data) > 0 {
-		if c.credit <= 0 {
-			return errors.New("d4: out of send credit")
-		}
-		chunk := len(data)
-		if maxPayload := c.mtu - d4HeaderLen; chunk > maxPayload {
-			chunk = maxPayload
-		}
-		eom := chunk == len(data)
-		// The credit byte grants the printer one answer packet, as the
-		// reference implementations write it; lenient firmware expects it
-		// beside the explicit grants of the control conversation.
-		if err := c.session.writePacket(c.socket, c.socket, 1, eom, data[:chunk]); err != nil {
-			return err
-		}
-		c.credit--
-		data = data[chunk:]
+	if len(resp) < 2 || resp[0] != 0x81 || resp[1] != 0x00 {
+		return fmt.Errorf("open channel refused: %x", resp)
 	}
 	return nil
 }
 
-// read collects one logical message from the channel: packets until their
-// end-of-message bit, granting one credit per packet wanted. maxBytes
-// bounds the message; the printer's answers are a few hundred bytes.
-func (c *d4Channel) read(maxBytes int) ([]byte, error) {
-	var out []byte
-	for {
-		if err := c.session.credit(c.socket, 1); err != nil {
-			return nil, fmt.Errorf("grant credit: %w", err)
-		}
-		packet, err := c.session.readPacket(c.socket)
+// request sends one EPSON-CTRL frame on the control channel and returns the
+// first answer packet's payload. The credit dance comes first, exactly as
+// the hardware-verified implementation does it: take send credit from the
+// printer with CreditRequest, grant it eight reply credits, then send the
+// frame carrying eight credits. A printer that stays quiet answers with
+// nothing within the sweeps.
+func (s *d4Session) request(frame []byte) ([]byte, error) {
+	if err := s.creditRequest(); err != nil {
+		return nil, fmt.Errorf("credit request: %w", err)
+	}
+	grant := []byte{0x03, 0x02, epsonCtrlSocket, 0x00, 0x08}
+	if _, err := s.control(grant); err != nil {
+		return nil, fmt.Errorf("credit grant: %w", err)
+	}
+	if err := s.writePacket(epsonCtrlSocket, epsonCtrlSocket, 8, frame); err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for range d4ReplySweeps {
+		p, err := s.readPacket(epsonCtrlSocket)
 		if err != nil {
-			return nil, err
+			lastErr = err
+			continue
 		}
-		out = append(out, packet.payload...)
-		if len(out) > maxBytes {
-			return nil, errors.New("d4: answer exceeds bound")
-		}
-		if packet.eom {
-			return out, nil
+		if len(p.payload) > 0 {
+			return p.payload, nil
 		}
 	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, errors.New("no reply to the command")
+}
+
+// creditRequest takes send credit for the channel from the printer. The
+// printer answers with a credit reply, or with nothing — some firmware
+// grants silently — which the verified implementation tolerates after a
+// few sweeps.
+func (s *d4Session) creditRequest() error {
+	var payload []byte
+	if s.rev == d4Revision10 {
+		payload = []byte{0x04, 0x02, epsonCtrlSocket, 0x00, 0x80, 0xff, 0xff}
+	} else {
+		payload = []byte{0x04, 0x02, epsonCtrlSocket, 0x00, 0x08}
+	}
+	if err := s.writePacket(0, 0, 1, payload); err != nil {
+		return err
+	}
+	for range 4 {
+		p, err := s.readPacket(0)
+		if err != nil {
+			return nil // no answer within the sweeps: the printer grants silently
+		}
+		if len(p.payload) > 0 && p.payload[0] == 0x84 {
+			return nil
+		}
+	}
+	return nil
 }

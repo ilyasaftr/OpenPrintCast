@@ -29,10 +29,6 @@ var guidUSBPrint = windows.GUID{
 // FILE_ANY_ACCESS).
 const ioctlUSBPrintGet1284ID = 0x22<<16 | 13<<2
 
-// ioTimeout bounds one read or write of the device; a printer that stops
-// answering mid-conversation must not hang the caller.
-const ioTimeout = 3 * time.Second
-
 // setupapi.dll and the enumeration calls; the device interface API has no
 // x/sys/windows binding.
 var (
@@ -60,8 +56,15 @@ type spDeviceInterfaceData struct {
 // usbprintDevice is an open handle of one USB printing device with
 // overlapped reads and writes bounded by ioTimeout.
 type usbprintDevice struct {
-	handle windows.Handle
-	path   string
+	handle  windows.Handle
+	path    string
+	timeout time.Duration
+}
+
+// setReadTimeout changes the bound of the next reads, for the drain phase
+// of the protocol, which must not wait the full timeout on an empty pipe.
+func (d *usbprintDevice) setReadTimeout(timeout time.Duration) {
+	d.timeout = timeout
 }
 
 // enumUSBPrintPaths lists the device paths of every present USB printer.
@@ -172,7 +175,11 @@ func (d *usbprintDevice) overlappedIO(write bool, p []byte) (int, error) {
 	if err == nil {
 		return int(done), nil // completed inline
 	}
-	wait, err := windows.WaitForSingleObject(event, uint32(ioTimeout.Milliseconds()))
+	timeout := d.timeout
+	if timeout == 0 {
+		timeout = ioTimeout
+	}
+	wait, err := windows.WaitForSingleObject(event, uint32(timeout.Milliseconds()))
 	if err != nil {
 		return 0, err
 	}

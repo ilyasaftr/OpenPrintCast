@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ilyasaftr/OpenPrintCast/internal/core"
 )
@@ -56,6 +57,11 @@ func (f Facts) TotalPages() (int, bool) {
 	}
 	return total, true
 }
+
+// ioTimeout bounds one read or write of the device; a printer that stops
+// answering must not hang the probe. The drain phase shortens it where
+// the device allows.
+const ioTimeout = 3 * time.Second
 
 // device is an open USB printer stream: writes go to the printer's bulk
 // output, reads come from its input. Close releases the handle.

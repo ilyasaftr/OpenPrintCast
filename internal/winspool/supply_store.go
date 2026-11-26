@@ -21,8 +21,10 @@ const (
 	// current.
 	supplyMaxStale = 10 * time.Minute
 	// supplyReadTimeout bounds one read of one printer, all requests
-	// included.
-	supplyReadTimeout = 2 * time.Second
+	// included. The USB device probe is a handshake of several round
+	// trips — drain, mode switch, negotiation, one exchange per fact —
+	// which needs seconds where SNMP needs milliseconds.
+	supplyReadTimeout = 15 * time.Second
 	// supplyBackoffBase is the wait after the first failed read; it doubles
 	// with every further failure up to supplyBackoffMax.
 	supplyBackoffBase = 30 * time.Second

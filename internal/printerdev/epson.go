@@ -17,13 +17,6 @@ import (
 // printers answer the status in the binary @BDC ST2 frame; older ones in
 // the text form carrying the ink levels as hex pairs behind an "IQ:" tag.
 
-// epsonService is the socket name every Epson inkjet offers.
-const epsonService = "EPSON-CTRL"
-
-// epsonMaxAnswer bounds one control answer; the ST2 frame of a real
-// printer is a few hundred bytes.
-const epsonMaxAnswer = 8192
-
 // epsonProber is the Epson vendor probe.
 type epsonProber struct{}
 
@@ -45,20 +38,15 @@ func (epsonProber) probe(ctx context.Context, rw io.ReadWriter, deviceID string)
 	if err != nil {
 		return Facts{}, err
 	}
-	channel, err := session.open(epsonService)
-	if err != nil {
-		return Facts{}, fmt.Errorf("open %s: %w", epsonService, err)
-	}
-	defer channel.close()
 
 	var statusErr error
-	status, err := epsonCommand(channel, "st", []byte{0x01})
+	status, err := epsonCommand(session, "st", []byte{0x01})
 	if err != nil {
 		statusErr = err
 	} else {
 		epsonParseStatus(status, &facts)
 	}
-	firmware, err := epsonFirmware(channel)
+	firmware, err := epsonFirmware(session)
 	if err == nil {
 		facts.Firmware = firmware
 	}
@@ -68,8 +56,10 @@ func (epsonProber) probe(ctx context.Context, rw io.ReadWriter, deviceID string)
 	return facts, nil
 }
 
-// epsonCommand frames one control command and reads its answer.
-func epsonCommand(channel *d4Channel, verb string, payload []byte) ([]byte, error) {
+// epsonCommand frames one control command and reads its answer. The
+// frame is the two-letter name, the little-endian payload length and the
+// payload, as the hardware-verified implementation builds it.
+func epsonCommand(session *d4Session, verb string, payload []byte) ([]byte, error) {
 	if len(verb) != 2 {
 		return nil, errors.New("epson: command verb must be two bytes")
 	}
@@ -79,12 +69,9 @@ func epsonCommand(channel *d4Channel, verb string, payload []byte) ([]byte, erro
 	frame := make([]byte, 4, 4+len(payload))
 	copy(frame, verb)
 	binary.LittleEndian.PutUint16(frame[2:4], uint16(len(payload)))
-	if err := channel.write(append(frame, payload...)); err != nil {
-		return nil, fmt.Errorf("send %s: %w", verb, err)
-	}
-	answer, err := channel.read(epsonMaxAnswer)
+	answer, err := session.request(append(frame, payload...))
 	if err != nil {
-		return nil, fmt.Errorf("read %s answer: %w", verb, err)
+		return nil, fmt.Errorf("%s: %w", verb, err)
 	}
 	return answer, nil
 }
@@ -92,8 +79,8 @@ func epsonCommand(channel *d4Channel, verb string, payload []byte) ([]byte, erro
 // epsonFirmware reads the version information and picks the firmware
 // token out of the "vi:00:XXXXXX" answer; the index byte selects among
 // the printer's firmware components, 0 the main one.
-func epsonFirmware(channel *d4Channel) (string, error) {
-	answer, err := epsonCommand(channel, "vi", []byte{0x00})
+func epsonFirmware(session *d4Session) (string, error) {
+	answer, err := epsonCommand(session, "vi", []byte{0x00})
 	if err != nil {
 		return "", err
 	}

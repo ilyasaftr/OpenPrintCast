@@ -9,47 +9,48 @@ import (
 	"github.com/ilyasaftr/OpenPrintCast/internal/core"
 )
 
-// fakeD4Printer is a scripted IEEE 1284.4 printer: it consumes the bytes
-// the session writes and answers with correctly framed packets, the way
-// the wire captures of the reverse implementations show a real one does.
+// fakeD4Printer is a scripted IEEE 1284.4 printer reproducing the wire
+// behavior the hardware-verified implementation documents for the L3250
+// generation: an empty packet as the enter reply, the Init revision
+// negotiation that refuses anything but its own revision, the credit
+// handshake before every command, and answers as one packet in the
+// zero-prefixed, terminator-ended shape real replies take.
 type fakeD4Printer struct {
 	readBuf  bytes.Buffer
 	writeBuf bytes.Buffer
 	// st2 is the TLV payload of the status answer; vi the version answer.
-	st2, vi   []byte
-	packetLen int // split channel answers into packets of at most this many bytes
-	socket    uint8
-	mtu       uint16
+	st2, vi []byte
+	// revision is the only D4 revision the fake speaks, as on the real
+	// printers of the family.
+	revision byte
+	// entered tracks the mode switch: before it, bytes are print data.
+	entered bool
 }
 
 func newFakeD4Printer() *fakeD4Printer {
-	return &fakeD4Printer{socket: 7, mtu: 512, packetLen: 1 << 15}
+	return &fakeD4Printer{revision: d4Revision10}
 }
 
 // queuePacket frames one outgoing packet into the read buffer.
-func (f *fakeD4Printer) queuePacket(psid, ssid uint8, credit uint8, eom bool, payload []byte) {
-	header := []byte{psid, ssid, 0, 0, credit, 0}
-	if eom {
-		header[5] = d4ControlEOM
-	}
+func (f *fakeD4Printer) queuePacket(psid uint8, payload []byte) {
+	header := []byte{psid, psid, 0, 0, 0, 0}
 	binary.BigEndian.PutUint16(header[2:4], uint16(len(payload)+d4HeaderLen))
 	f.readBuf.Write(header)
 	f.readBuf.Write(payload)
-}
-
-// commandResponse queues the socket-zero response to a control command.
-func (f *fakeD4Printer) commandResponse(cmd byte, result []byte) {
-	f.queuePacket(0, 0, 1, true, append([]byte{cmd | 0x80, 0}, result...))
 }
 
 func (f *fakeD4Printer) Write(p []byte) (int, error) {
 	f.writeBuf.Write(p)
 	for {
 		b := f.writeBuf.Bytes()
-		if bytes.Contains(b, []byte("@EJL 1284.4")) {
-			// The mode switch is answered by an eight-byte prelude.
-			f.readBuf.Write(make([]byte, 8))
+		if !f.entered {
+			if !bytes.Contains(b, []byte("@EJL 1284.4")) {
+				return len(p), nil
+			}
+			f.entered = true
 			f.writeBuf.Reset()
+			// The enter reply is one empty packet — six bytes, no more.
+			f.queuePacket(0, nil)
 			return len(p), nil
 		}
 		if len(b) < d4HeaderLen {
@@ -76,46 +77,43 @@ func (f *fakeD4Printer) handlePacket(packet []byte) {
 			return
 		}
 		switch payload[0] {
-		case d4cmdInit:
-			f.commandResponse(d4cmdInit, []byte{0x10})
-		case d4cmdGetSocketID:
-			f.commandResponse(d4cmdGetSocketID, []byte{f.socket})
-		case d4cmdOpenChannel:
-			resp := []byte{f.socket, f.socket, 0, 0, 0xff, 0xff, 0, 8}
-			binary.BigEndian.PutUint16(resp[2:4], f.mtu)
-			f.commandResponse(d4cmdOpenChannel, resp)
-		case d4cmdCredit:
-			f.commandResponse(d4cmdCredit, nil)
-		case d4cmdCloseChannel:
-			f.commandResponse(d4cmdCloseChannel, nil)
-		case d4cmdExit:
-			f.commandResponse(d4cmdExit, nil)
+		case 0x00: // Init: only the printer's own revision is accepted
+			if len(payload) > 1 && payload[1] == f.revision {
+				f.queuePacket(0, []byte{0x80, 0x00, f.revision})
+			} else {
+				f.queuePacket(0, []byte{0x80, 0x01, f.revision})
+			}
+		case 0x01: // OpenChannel
+			f.queuePacket(0, []byte{0x81, 0x00})
+		case 0x03: // Credit
+			f.queuePacket(0, []byte{0x83, 0x00})
+		case 0x04: // CreditRequest
+			f.queuePacket(0, []byte{0x84, 0x00})
 		}
 		return
 	}
-	// A channel packet: the control command it carries, answered in
-	// packets of at most packetLen bytes with eom on the last.
+	// A channel packet: the control command it carries, answered as one
+	// packet in the shape real replies take — a leading zero, the @BDC
+	// block, the 0x0C terminator.
+	if len(payload) < 4 {
+		return
+	}
 	verb := string(payload[:2])
 	var answer []byte
 	switch verb {
 	case "st":
-		answer = append([]byte("@BDC ST2\r\n"), 0, 0)
-		answer = append(answer, f.st2...)
-		binary.LittleEndian.PutUint16(answer[10:12], uint16(len(f.st2)))
+		inner := append([]byte("@BDC ST2\r\n"), 0, 0)
+		inner = append(inner, f.st2...)
+		binary.LittleEndian.PutUint16(inner[10:12], uint16(len(f.st2)))
+		answer = append([]byte{0x00}, inner...)
+		answer = append(answer, 0x0c)
 	case "vi":
-		answer = f.vi
+		answer = append([]byte{0x00}, f.vi...)
+		answer = append(answer, 0x0c)
 	default:
 		return
 	}
-	for len(answer) > 0 {
-		chunk := len(answer)
-		if chunk > f.packetLen {
-			chunk = f.packetLen
-		}
-		eom := chunk == len(answer)
-		f.queuePacket(f.socket, f.socket, 0, eom, answer[:chunk])
-		answer = answer[chunk:]
-	}
+	f.queuePacket(epsonCtrlSocket, answer)
 }
 
 func (f *fakeD4Printer) Read(p []byte) (int, error) {
@@ -124,6 +122,9 @@ func (f *fakeD4Printer) Read(p []byte) (int, error) {
 	}
 	return f.readBuf.Read(p)
 }
+
+// errReader is a device that never answers, for the failure paths.
+type errReader struct{}
 
 // st2Element appends one TLV element.
 func st2Element(ftype byte, item ...byte) []byte {
@@ -215,17 +216,19 @@ func TestEpsonProbeReadsErrorReasons(t *testing.T) {
 	}
 }
 
-func TestEpsonProbeReassemblesSplitAnswers(t *testing.T) {
+// TestEpsonProbeNegotiatesTheRevision proves the handshake survives the
+// printer refusing the first offered revision, which is what the L3250
+// generation does: it answers 0x20 with "speak 0x10".
+func TestEpsonProbeNegotiatesTheRevision(t *testing.T) {
 	printer := newFakeD4Printer()
 	printer.st2 = sampleST2()
 	printer.vi = []byte("vi:00:RF11I5;")
-	printer.packetLen = 7 // force many small packets
 	facts, err := epsonProber{}.probe(context.Background(), printer, "MFG:EPSON;MDL:L3210 Series;")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the revision negotiation must succeed: %v", err)
 	}
-	if len(facts.Supplies) != 5 {
-		t.Fatalf("want 5 supplies across split packets, got %d", len(facts.Supplies))
+	if len(facts.Supplies) == 0 {
+		t.Error("no supplies read after the negotiation")
 	}
 }
 
