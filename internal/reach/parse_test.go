@@ -74,8 +74,8 @@ func TestParseFactsShapes(t *testing.T) {
 }
 
 func TestCollectScriptIsAConstantWithoutUserData(t *testing.T) {
-	for _, want := range []string{"Get-NetConnectionProfile", "Get-NetFirewallProfile", "Get-NetFirewallRule -Direction Inbound -Enabled True",
-		"Get-NetFirewallPortFilter", "Get-NetFirewallAddressFilter", "Get-NetFirewallApplicationFilter",
+	for _, want := range []string{"HNetCfg.FwPolicy2", "DCB00C01-570F-4A9B-8D69-199FDBA5723B", "GetNetworks(1)",
+		"FirewallEnabled(", "DefaultInboundAction(", "GetCategory()",
 		"Get-NetTCPConnection -LocalPort 631 -State Listen -ErrorAction SilentlyContinue", "Get-Process", "UTF8Encoding", "ConvertTo-Json"} {
 		if !strings.Contains(collectScript, want) {
 			t.Errorf("script lacks %q", want)

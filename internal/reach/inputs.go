@@ -5,7 +5,7 @@ import (
 	"net"
 )
 
-// Windows firewall profile bits as Get-NetFirewallRule reports them.
+// Windows firewall profile bits as the firewall API reports them.
 const (
 	profileDomain  = 1
 	profilePrivate = 2
@@ -21,7 +21,7 @@ const (
 	ProfilePublic  = "Public"
 )
 
-// ConnProfile is one connected network (Get-NetConnectionProfile).
+// ConnProfile is one connected network (the Network List Manager).
 type ConnProfile struct {
 	InterfaceAlias   string
 	NetworkCategory  string // Public, Private or DomainAuthenticated
@@ -29,7 +29,7 @@ type ConnProfile struct {
 }
 
 // FirewallProfile is the firewall's setting for one profile
-// (Get-NetFirewallProfile).
+// (INetFwPolicy2, the firewall COM API).
 type FirewallProfile struct {
 	Name                 string // Domain, Private or Public
 	Enabled              string // True, False or NotConfigured
